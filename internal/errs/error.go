@@ -23,6 +23,11 @@ var (
 	errPathClash                          = errors.New("web: 路由冲突，参数路由冲突")
 	errRegularClash                       = errors.New("web: 路由冲突，正则路由冲突")
 	errRegularExpression                  = errors.New("web: 正则表达式错误")
+	errRouterNotString                    = errors.New("web: 路由是空字符串")
+	errRouterFront                        = errors.New("web: 路由必须以 / 开头")
+	errRouterBack                         = errors.New("web: 路由不能以 / 结尾")
+	errRouterConflict                     = errors.New("web: 路由冲突")
+	errRouterNotSymbolic                  = errors.New("web: 非法路由。不允许使用 //a/b, /a//b 之类的路由")
 )
 
 func ErrKeyNotFound(key string) error {
@@ -82,4 +87,24 @@ func ErrRegularClash(pathParam string, path string) error {
 
 func ErrRegularExpression(err error) error {
 	return fmt.Errorf("%w %w", errRegularExpression, err)
+}
+
+func ErrRouterNotString() error {
+	return fmt.Errorf("%w", errRouterNotString)
+}
+
+func ErrRouterFront() error {
+	return fmt.Errorf("%w", errRouterFront)
+}
+
+func ErrRouterBack() error {
+	return fmt.Errorf("%w", errRouterBack)
+}
+
+func ErrRouterConflict(val string) error {
+	return fmt.Errorf("%w [%s]", errRouterConflict, val)
+}
+
+func ErrRouterNotSymbolic(path string) error {
+	return fmt.Errorf("%w, [%s]", errRouterNotSymbolic, path)
 }
