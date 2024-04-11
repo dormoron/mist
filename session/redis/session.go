@@ -265,7 +265,7 @@ func StoreWithPrefix(prefix string) StoreOptions {
 //
 // Parameters:
 //   - ctx: context.Context which allows for timeouts or cancellation signals to propagate into the database calls,
-//     ensuring that the function is responsive to shutdown signals and does not leave hanging database calls.
+//     ensuring that the function is responsive to shut down signals and does not leave hanging database calls.
 //   - id: A string representing the unique identifier for the session. This ID should be unique to maintain separate
 //     session data for different users or contexts.
 //
@@ -346,7 +346,7 @@ func (s *Store) Generate(ctx context.Context, id string) (session.Session, error
 //	    // handle the error, which might be a missing session or a Redis command error
 //	}
 //
-// The Redis 'Expire' command is atomic, and as such, when used with a context with a timeout or cancelation, it ensures that
+// The Redis 'Expire' command is atomic, and as such, when used with a context with a timeout or cancellation, it ensures that
 // the method won't leave a Redis session in an undefined state. It will either update the expiration successfully or fail cleanly
 // without side effects.
 func (s *Store) Refresh(ctx context.Context, id string) error {
@@ -426,7 +426,7 @@ func (s *Store) Remove(ctx context.Context, id string) error {
 //   - id: A string representing the unique identifier of the session to be retrieved. This ID should match the one used
 //     when the session was created.
 //
-// The function comprises of the following steps:
+// The function comprises the following steps:
 // 1. Builds the Redis key using the store's prefix and the session ID provided by the user.
 // 2. Calls the Redis 'Exists' command to check if a session with the given key is present in the store.
 //   - If an error occurs during the Redis call, it is captured and returned immediately, halting any further execution.
@@ -605,7 +605,7 @@ end
 
 // ID returns the identifier of the current session.
 //
-// This method does not accept any parameters and it simply returns the ID property
+// This method does not accept any parameters, and it simply returns the ID property
 // from the Session struct. The ID typically uniquely identifies the session, which
 // can then be used to retrieve or associate session-specific data.
 //

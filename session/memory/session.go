@@ -129,18 +129,17 @@ func (s *Store) Generate(ctx context.Context, id string) (session.Session, error
 // concurrent access to the sessions cache during the update process.
 //
 // Parameters:
-// - ctx context.Context: The context in which the session refresh is executed. The context
-//   provides the ability to handle cancellations and timeouts, although this functionality
-//   is not utilized in the current function implementation.
-// - id string: The unique identifier of the session that is being refreshed.
+//   - ctx context.Context: The context in which the session refresh is executed. The context
+//     provides the ability to handle cancellations and timeouts, although this functionality
+//     is not utilized in the current function implementation.
+//   - id string: The unique identifier of the session that is being refreshed.
 //
 // Returns:
-// - error: An error is returned if the session with the specified ID cannot be found;
-//   otherwise, nil is returned after successfully refreshing the session expiration time.
+//   - error: An error is returned if the session with the specified ID cannot be found;
+//     otherwise, nil is returned after successfully refreshing the session expiration time.
 //
 // This method assumes that the errs.ErrIdSessionNotFound function returns a relevant
 // error when a session with a given ID does not exist.
-
 func (s *Store) Refresh(ctx context.Context, id string) error {
 	// Lock the mutex to ensure exclusive access to the sessions cache during the refresh
 	// operation. This is crucial to prevent any concurrent write or read operations that
@@ -171,19 +170,18 @@ func (s *Store) Refresh(ctx context.Context, id string) error {
 // It's designed to ensure thread-safe deletion of session data, avoiding concurrent access issues.
 //
 // Parameters:
-// - ctx context.Context: The context in which session removal is requested. This
-//   typically contains information about deadlines, cancellation signals, and other
-//   request-scoped values relevant to the operation. However, the context is not directly
-//   utilized within this function.
-// - id string: The unique identifier of the session to be removed from the cache.
+//   - ctx context.Context: The context in which session removal is requested. This
+//     typically contains information about deadlines, cancellation signals, and other
+//     request-scoped values relevant to the operation. However, the context is not directly
+//     utilized within this function.
+//   - id string: The unique identifier of the session to be removed from the cache.
 //
 // Returns:
-// - error: An error is returned if any issues occur during the deletion process;
-//   however, in this implementation, the function always returns nil, indicating success.
+//   - error: An error is returned if any issues occur during the deletion process;
+//     however, in this implementation, the function always returns nil, indicating success.
 //
 // It's important to handle potential errors in future revisions of this method, particularly
 // when operations that can fail are introduced.
-
 func (s *Store) Remove(ctx context.Context, id string) error {
 	// Lock the mutex to prevent other goroutines from modifying the session cache
 	// concurrently, guaranteeing the safe deletion of a session.
@@ -245,13 +243,12 @@ func (s *Store) Get(ctx context.Context, id string) (session.Session, error) {
 // It stores session-specific information, such as a unique session ID and session values,
 // in a thread-safe manner, ensuring that multiple goroutines can interact with the values
 // concurrently without causing race conditions.
-
+//
 // Fields:
-// - id string: The unique identifier of the session, used to retrieve or differentiate the session.
-// - values sync.Map: A thread-safe map provided by the sync package, used to store session-specific
-//   values. sync.Map uses fine-grained locking which is more efficient for cases where
-//   multiple goroutines are reading, writing, and iterating over entries in the map simultaneously.
-
+//   - id string: The unique identifier of the session, used to retrieve or differentiate the session.
+//   - values sync.Map: A thread-safe map provided by the sync package, used to store session-specific
+//     values. sync.Map uses fine-grained locking which is more efficient for cases where
+//     multiple goroutines are reading, writing, and iterating over entries in the map simultaneously.
 type Session struct {
 	// id holds the unique identifier for the session, which is typically generated when
 	// a new session is created and persists until the session is ended or times out.

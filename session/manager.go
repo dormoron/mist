@@ -13,10 +13,10 @@ import (
 // throughout the application, as it encapsulates all the necessary operations within a single entity.
 //
 // Fields:
-// - CtxSessionKey: A string that represents the key under which the session object is stored in
-//   the context of an HTTP request. This allows middleware and handlers to retrieve the session
-//   info from the context using this key, facilitating a standard way of accessing session data
-//   during the processing of a request.
+//   - CtxSessionKey: A string that represents the key under which the session object is stored in
+//     the context of an HTTP request. This allows middleware and handlers to retrieve the session
+//     info from the context using this key, facilitating a standard way of accessing session data
+//     during the processing of a request.
 //
 // The inclusion of both the Store and Propagator interfaces suggests that any instance of Manager is
 // capable of performing all session-related operations defined by these interfaces. This includes generating
@@ -25,17 +25,17 @@ import (
 //
 // Here is an example of how the Manager struct could be initialized and used within an application:
 //
-// func main() {
-//     // Initialize the session manager with specific implementations of Store and Propagator.
-//     sessionManager := &Manager{
-//         Store: NewRedisStore(), // assuming NewRedisStore returns an implementation of Store
-//         Propagator: NewCookiePropagator("session_id"), // assuming NewCookiePropagator returns an implementation of Propagator
-//         CtxSessionKey: "session", // the key used to store session objects in context
-//     }
+//	func main() {
+//	    // Initialize the session manager with specific implementations of Store and Propagator.
+//	    sessionManager := &Manager{
+//	        Store: NewRedisStore(), // assuming NewRedisStore returns an implementation of Store
+//	        Propagator: NewCookiePropagator("session_id"), // assuming NewCookiePropagator returns an implementation of Propagator
+//	        CtxSessionKey: "session", // the key used to store session objects in context
+//	    }
 //
-//     // Set up your HTTP server, routes, middleware, etc.,
-//     // and use sessionManager to manage sessions in your application.
-// }
+//	    // Set up your HTTP server, routes, middleware, etc.,
+//	    // and use sessionManager to manage sessions in your application.
+//	}
 //
 // Through Manager, all handlers and middleware in the application can interact with sessions
 // using a standardized interface without worrying about the underlying storage or communication
@@ -44,7 +44,6 @@ import (
 // Implementers of the Manager struct should ensure that necessary synchronizations or concurrent
 // access handling are considered in their implementations of Store and Propagator to prevent race
 // conditions or data inconsistencies.
-
 type Manager struct {
 	Store                // Handles storage and retrieval of session data.
 	Propagator           // Manages transmission of session identifiers in HTTP messages.
@@ -57,21 +56,21 @@ type Manager struct {
 // is loaded only once per request, thereby improving performance and reducing redundant operations.
 //
 // The flow is as follows:
-// 1. It first checks if the UserValues map within the mist.Context is initialized. If not,
-//    it initializes the map to store the session object later in the process.
-// 2. The method then tries to retrieve the session from the UserValues map using the CtxSessionKey
-//    defined in the Manager struct. This is to check if the session was already fetched and cached
-//    earlier in the current request lifecycle.
-// 3. If the session is found in the map, it is returned immediately, avoiding any further operations.
-// 4. If not, the method utilizes the Propagator interface's Extract method to retrieve the session
-//    identifier from the incoming HTTP request, which is typically read from a cookie or request header.
-// 5. With the session identifier obtained, the method then fetches the actual session data using the
-//    Store interface's Get method. This method call also passes along the context from the request to handle
-//    any session-related context operations such as deadlines or cancellations.
-// 6. After the session is successfully retrieved, it is stored in the UserValues map using the CtxSessionKey
-//    for quick access during subsequent calls within the same request lifecycle.
-// 7. Finally, the actual session data or an error (if any occurred while retrieving the session identifier
-//    or the session data) is returned.
+//  1. It first checks if the UserValues map within the mist.Context is initialized. If not,
+//     it initializes the map to store the session object later in the process.
+//  2. The method then tries to retrieve the session from the UserValues map using the CtxSessionKey
+//     defined in the Manager struct. This is to check if the session was already fetched and cached
+//     earlier in the current request lifecycle.
+//  3. If the session is found in the map, it is returned immediately, avoiding any further operations.
+//  4. If not, the method utilizes the Propagator interface's Extract method to retrieve the session
+//     identifier from the incoming HTTP request, which is typically read from a cookie or request header.
+//  5. With the session identifier obtained, the method then fetches the actual session data using the
+//     Store interface's Get method. This method call also passes along the context from the request to handle
+//     any session-related context operations such as deadlines or cancellations.
+//  6. After the session is successfully retrieved, it is stored in the UserValues map using the CtxSessionKey
+//     for quick access during subsequent calls within the same request lifecycle.
+//  7. Finally, the actual session data or an error (if any occurred while retrieving the session identifier
+//     or the session data) is returned.
 //
 // If at any point there is a failure to retrieve the session identifier or the session data, an error
 // is returned to the caller. This method centralizes error handling related to session retrieval, which
@@ -83,7 +82,6 @@ type Manager struct {
 // Usage:
 // This method should be called by middlewares or handlers that require access to the current user's session.
 // It exempts them from having to handle low-level session extraction and storage mechanisms directly.
-
 func (m *Manager) GetSession(ctx *mist.Context) (Session, error) {
 	// Ensure the map used to store values in the context is initialized.
 	if ctx.UserValues == nil {
@@ -120,21 +118,21 @@ func (m *Manager) GetSession(ctx *mist.Context) (Session, error) {
 // the client for future interactions.
 //
 // The process involves the following steps:
-// 1. Generate a new unique identifier for the session using a universally unique identifier (UUID) library.
-// 2. With the new session identifier, the method calls the Generate method of the embedded Store interface
-//    to actually create a new session in the session store. This session creation is supposed to associate
-//    the generated UUID with a new session object and store it in whatever storage mechanism the Store
-//    interface implementation uses (e.g., in-memory, database, etc.). The request context is provided
-//    to handle any necessary context operations such as deadlines or request cancellations.
-// 3. If an error occurs during session generation (e.g., database error, context deadline exceeded), this
-//    error is returned to the caller and no further steps are taken.
-// 4. Should the session generation be successful, the new identifier is then propagated to the client using
-//    the Inject method of the Propagator interface which is part of the Manager. This step typically involves
-//    setting a cookie or an HTTP header in the response so that the client can include this identifier in
-//    subsequent requests to maintain the session context.
-// 5. The new session object is returned to the caller along with any error that might occur during the
-//    identifier injection process (though no error is expected in creating a new session at this point,
-//    errors might occur while setting an HTTP response header or cookie).
+//  1. Generate a new unique identifier for the session using a universally unique identifier (UUID) library.
+//  2. With the new session identifier, the method calls the Generate method of the embedded Store interface
+//     to actually create a new session in the session store. This session creation is supposed to associate
+//     the generated UUID with a new session object and store it in whatever storage mechanism the Store
+//     interface implementation uses (e.g., in-memory, database, etc.). The request context is provided
+//     to handle any necessary context operations such as deadlines or request cancellations.
+//  3. If an error occurs during session generation (e.g., database error, context deadline exceeded), this
+//     error is returned to the caller and no further steps are taken.
+//  4. Should the session generation be successful, the new identifier is then propagated to the client using
+//     the Inject method of the Propagator interface which is part of the Manager. This step typically involves
+//     setting a cookie or an HTTP header in the response so that the client can include this identifier in
+//     subsequent requests to maintain the session context.
+//  5. The new session object is returned to the caller along with any error that might occur during the
+//     identifier injection process (though no error is expected in creating a new session at this point,
+//     errors might occur while setting an HTTP response header or cookie).
 //
 // It's important for the implementer to note that after this method is called, the client must include
 // the session identifier in subsequent requests, and the server will need to handle this identifier to
@@ -151,15 +149,15 @@ func (m *Manager) GetSession(ctx *mist.Context) (Session, error) {
 // to be created.
 //
 // Example:
-// http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
-//     ctx := mist.NewContext(r, w)
-//     session, err := sessionManager.InitSession(ctx)
-//     if err != nil {
-//         // Handle error
-//     }
-//     // Session initialized successfully, store session data or modify response as needed.
-// })
-
+//
+//	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
+//	    ctx := mist.NewContext(r, w)
+//	    session, err := sessionManager.InitSession(ctx)
+//	    if err != nil {
+//	        // Handle error
+//	    }
+//	    // Session initialized successfully, store session data or modify response as needed.
+//	})
 func (m *Manager) InitSession(ctx *mist.Context) (Session, error) {
 	// Generate a new UUID for the session.
 	id := uuid.New().String()
