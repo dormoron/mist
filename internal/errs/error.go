@@ -6,33 +6,34 @@ import (
 )
 
 var (
-	errKeyNotFound       = errors.New("session: 找不到 key")
-	errSessionNotFound   = errors.New("session: 找不到 session")
-	errIdSessionNotFound = errors.New("session: id 对应的 session 不存在")
+	errKeyNotFound       = errors.New("session: key not found")
+	errSessionNotFound   = errors.New("session: session not found")
+	errIdSessionNotFound = errors.New("session: session corresponding to id does not exist")
 	// context error
-	errInputNil = errors.New("web: 输入不能为 nil")
-	errBodyNil  = errors.New("web: body 为 nil")
-	errKeyNil   = errors.New("web: key 不存在")
+	errInputNil = errors.New("web: input cannot be nil")
+	errBodyNil  = errors.New("web: body is nil")
+	errKeyNil   = errors.New("web: key does not exist")
 	//  router errors
-	errPathNotAllowWildcardAndPath        = errors.New("web: 非法路由，已有路径参数路由。不允许同时注册通配符路由和参数路由")
-	errPathNotAllowPathAndRegular         = errors.New("web: 非法路由，已有路径参数路由。不允许同时注册正则路由和参数路由")
-	errRegularNotAllowWildcardAndRegular  = errors.New("web: 非法路由，已有正则路由。不允许同时注册通配符路由和正则路由")
-	errRegularNotAllowRegularAndPath      = errors.New("web: 非法路由，已有正则路由。不允许同时注册正则路由和参数路由")
-	errWildcardNotAllowWildcardAndPath    = errors.New("web: 非法路由，已有通配符路由。不允许同时注册通配符路由和参数路由")
-	errWildcardNotAllowWildcardAndRegular = errors.New("web: 非法路由，已有通配符路由。不允许同时注册通配符路由和正则路由")
-	errPathClash                          = errors.New("web: 路由冲突，参数路由冲突")
-	errRegularClash                       = errors.New("web: 路由冲突，正则路由冲突")
-	errRegularExpression                  = errors.New("web: 正则表达式错误")
-	errRouterNotString                    = errors.New("web: 路由是空字符串")
-	errRouterFront                        = errors.New("web: 路由必须以 / 开头")
-	errRouterBack                         = errors.New("web: 路由不能以 / 结尾")
-	errRouterConflict                     = errors.New("web: 路由冲突")
-	errRouterNotSymbolic                  = errors.New("web: 非法路由。不允许使用 //a/b, /a//b 之类的路由")
+	errPathNotAllowWildcardAndPath        = errors.New("web: illegal route, path parameter route already exists. Cannot register wildcard route and parameter route at the same time")
+	errPathNotAllowPathAndRegular         = errors.New("web: illegal route, path parameter route already exists. Cannot register regular route and parameter route at the same time")
+	errRegularNotAllowWildcardAndRegular  = errors.New("web: illegal route, regular route already exists. Cannot register wildcard route and regular route at the same time")
+	errRegularNotAllowRegularAndPath      = errors.New("web: illegal route, regular route already exists. Cannot register regular route and parameter route at the same time")
+	errWildcardNotAllowWildcardAndPath    = errors.New("web: illegal route, wildcard route already exists. Cannot register wildcard route and parameter route at the same time")
+	errWildcardNotAllowWildcardAndRegular = errors.New("web: illegal route, wildcard route already exists. Cannot register wildcard route and regular route at the same time")
+	errPathClash                          = errors.New("web: route conflict, parameter routes clash")
+	errRegularClash                       = errors.New("web: route conflict, regular routes clash")
+	errRegularExpression                  = errors.New("web: regular expression error")
+	errRouterNotString                    = errors.New("web: route is an empty string")
+	errRouterFront                        = errors.New("web: route must start with '/'")
+	errRouterBack                         = errors.New("web: route cannot end with '/'")
+	errRouterConflict                     = errors.New("web: route conflict")
+	errRouterNotSymbolic                  = errors.New("web: illegal route. Routes like //a/b, /a//b etc. are not allowed")
 )
 
 func ErrKeyNotFound(key string) error {
 	return fmt.Errorf("%w, key %s", errKeyNotFound, key)
 }
+
 func ErrSessionNotFound() error {
 	return fmt.Errorf("%w", errSessionNotFound)
 }
@@ -78,13 +79,12 @@ func ErrWildcardNotAllowWildcardAndRegular(path string) error {
 }
 
 func ErrPathClash(pathParam string, path string) error {
-	return fmt.Errorf("%w，已有 %s，新注册 %s", errPathClash, pathParam, path)
+	return fmt.Errorf("%w: existing parameter route %s, attempting to register new %s", errPathClash, pathParam, path)
 }
 
 func ErrRegularClash(pathParam string, path string) error {
-	return fmt.Errorf("%w，已有 %s，新注册 %s", errRegularClash, pathParam, path)
+	return fmt.Errorf("%w: existing regular route %s, attempting to register new %s", errRegularClash, pathParam, path)
 }
-
 func ErrRegularExpression(err error) error {
 	return fmt.Errorf("%w %w", errRegularExpression, err)
 }

@@ -196,14 +196,14 @@ func (r *router) registerRoute(method string, path string, handler HandleFunc, m
 // dispatch incoming requests to the appropriate handlers based on the request's method and path.
 
 // Parameters:
-// - method: The HTTP request method ('GET', 'POST', etc.) used to locate the routing sub-tree.
-// - path:   The path of the request used to search for a matching node within the routing sub-tree.
+// - method: The HTTP request method ('GET', 'POST', etc.) used to locate the routing subtree.
+// - path:   The path of the request used to search for a matching node within the routing subtree.
 
 // The method operates as follows:
 
 //  1. It first looks for a subtree corresponding to the request method. Every HTTP method (GET, POST, etc.) has an
-//     associated sub-tree.
-//  2. If no sub-tree is found for the method, it indicates that there are no routes registered for that HTTP method, and
+//     associated subtree.
+//  2. If no subtree is found for the method, it indicates that there are no routes registered for that HTTP method, and
 //     it returns false, indicating no route match.
 //  3. For the special path "/", it immediately returns a matchInfo with the root node and its middleware since this is a
 //     common special case representing the root of the domain.
@@ -221,15 +221,15 @@ func (r *router) registerRoute(method string, path string, handler HandleFunc, m
 //  8. It returns the 'matchInfo' struct with the matched node and determined middleware, along with true to indicate a
 //     successful route find.
 func (r *router) findRoute(method string, path string) (*matchInfo, bool) {
-	// Attempt to retrieve the routing sub-tree for the provided HTTP method.
+	// Attempt to retrieve the routing subtree for the provided HTTP method.
 	root, ok := r.trees[method]
 	if !ok {
-		// If no such sub-tree exists, no routes are registered for this method; thus, no match is found.
+		// If no such subtree exists, no routes are registered for this method; thus, no match is found.
 		return nil, false
 	}
 
 	if path == "/" {
-		// If the path is simply "/", return the root node of the method-specific sub-tree, including any middleware.
+		// If the path is simply "/", return the root node of the method-specific subtree, including any middleware.
 		return &matchInfo{n: root, mils: root.mils}, true
 	}
 
@@ -502,136 +502,391 @@ func (n *node) childrenOf(path string) []*node {
 	return res
 }
 
-// child 返回子节点
-// 第一个返回值 *node 是命中的节点
-// 第二个返回值 bool 代表是否命中
+// childOf attempts to find a child node of the current node (n) that matches the given path. If a matching child
+// node is found, the node is returned along with a boolean value 'true'. If no matching child node is found
+// directly within the static children, it attempts to find a match using the childOfNonStatic method,
+// which is likely handling parameterized or wildcard routes. If no match is found even after this check, a 'false'
+// boolean value is returned, indicating that the child does not exist within this node's hierarchy.
+
+// Parameters:
+// - path: A string representing the path segment to match against the current node's children.
+
+// The childOf function operates in the following manner:
+
+// 1. Checks if the current node (n) has any children at all. If not, it immediately delegates the search to
+//    childOfNonStatic, which handles cases where children might be represented differently (e.g., parameterized
+//    path segments).
+// 2. If there are children, it attempts to find a direct match for the path in the map of children nodes.
+// 3. If a direct match is found in the children, the corresponding child node is returned along with 'true'.
+// 4. If there is no direct match in the static children, again, the method childOfNonStatic is called to attempt
+//    to find a non-static match.
+// 5. It then returns the results of childOfNonStatic, which could be either a node or nil and a boolean indicating
+//    the result of the search.
+
+// This method is a key part of the route resolution process, allowing the router to traverse nodes based on the
+// path segments of the incoming requests.
+
 func (n *node) childOf(path string) (*node, bool) {
+	// If the current node has no statically defined children, attempt to find a child node using an alternative
+	// method that handles non-static routes (e.g., with parameters).
 	if n.children == nil {
 		return n.childOfNonStatic(path)
 	}
+
+	// Attempt to find a direct child node with a path that exactly matches the given path segment.
 	res, ok := n.children[path]
 	if !ok {
+		// If no direct static match is found, attempt to find a child node with non-static matching.
 		return n.childOfNonStatic(path)
 	}
+
+	// Return the found child node and a boolean indicating a successful match.
 	return res, ok
 }
 
-// childOfNonStatic 从非静态匹配的子节点里面查找
+// childOfNonStatic attempts to find a non-static (dynamic) child node of the current node (n) that matches the given
+// path segment. This includes children nodes that represent regular expression patterns, named parameters, or wildcard
+// segments. It returns a pointer to the matching child node and a boolean flag indicating whether a match was found.
+
+// Parameters:
+// - path: A string representing the path segment to match against the current node's dynamic children.
+
+// The childOfNonStatic function operates in the following sequence:
+
+// 1. Checks if the current node has a regular expression child (regChild). If so, it uses the compiled regular
+//    expression stored in regChild.regExpr to determine if the given path segment matches the pattern.
+// 2. If a match is confirmed with the regular expression, the regChild node and 'true' are returned to indicate
+//    successful matching.
+// 3. If there is no regChild or if the path does not match the regular expression, the function then checks whether
+//    the current node has a parameterized child (paramChild). Parameterized children represent path segments with
+//    named parameters (e.g., /users/:userId).
+// 4. If a paramChild exists, it is assumed to match the path segment (since parameterized segments can match any
+//    value), and the paramChild node and 'true' are returned.
+// 5. If neither a regChild nor a paramChild are applicable, the function finally checks for the presence of a wildcard
+//    child (starChild). Wildcard children are used to match any remaining path segments, typically represented by an
+//    asterisk (*).
+// 6. If a starChild exists, it is returned along with 'true', as it matches any path by definition. If starChild does
+//    not exist, the function returns nil and 'false', meaning no match was found among the node's dynamic children.
+
+// This method is specifically designed to handle dynamic routing scenarios where path segments may not be known
+// statically and can contain patterns, parameters, or wildcards that need to be resolved at runtime.
+
 func (n *node) childOfNonStatic(path string) (*node, bool) {
+	// Attempt to match the path segment with a regular expression pattern if regChild exists.
 	if n.regChild != nil {
+		// If the regular expression matches the path, return the regChild and true.
 		if n.regChild.regExpr.Match([]byte(path)) {
 			return n.regChild, true
 		}
 	}
+
+	// If no regular expression match is found, check for a parameterized child node.
 	if n.paramChild != nil {
+		// Parameterized child nodes match any path segment, so return the paramChild and true.
 		return n.paramChild, true
 	}
+
+	// If no other dynamic match is found, check for a wildcard child node.
+	// Wildcard nodes (if any) match any path segment, so return starChild and a boolean indicating its existence.
 	return n.starChild, n.starChild != nil
 }
 
-// childOrCreate 查找子节点，
+// childOrCreate locates a child node within the current node (n) that matches the given 'path' or creates a new
+// child node if one does not already exist. It handles different node types: static, parameterized, regular
+// expression-based, and wildcard. The method returns a pointer to the child node. If the given 'path' represents a
+// wildcard or parameterized path and violates the routing rules (such as being mixed with parameterized paths or
+// regular expressions), the method panics with an appropriate error.
+
+// Parameters:
+// - path: A string representing the path segment to match against or to create within the current node's children.
+
+// The childOrCreate function operates as follows:
+
+// 1. Checks if the given 'path' is a wildcard "*". If so, it ensures that no parameterized (paramChild) or regular
+//    expression-based (regChild) children exist, as these are not allowed in conjunction with a wildcard. If this
+//    rule is violated, a panic occurs with a descriptive error message.
+// 2. If a wildcard child node does not exist, it creates one, initializes it with the path, and sets its type to
+//    nodeTypeAny.
+// 3. If the given 'path' starts with ':', indicating it is a parameterized path, the method parses the parameter name
+//    and any associated regular expression (if present) using 'parseParam'.
+// 4. Depending on whether a regular expression is part of the parameterized path, it calls either 'childOrCreateReg'
+//    or 'childOrCreateParam' to either create or fetch the existing child.
+// 5. If 'path' does not start with '*' or ':', indicating a static path, it initializes 'n.children' if it's nil and
+//    then looks for or creates a static child node with the given path.
+// 6. It inserts the new static child node into the 'children' map if it does not exist already and initializes it
+//    with the path and type 'nodeTypeStatic'.
+
+// Note:
+// - This method modifies the current node 'n', potentially adding new child nodes to it.
+// - This method assumes that 'path' is a non-empty string.
+
 func (n *node) childOrCreate(path string) *node {
-	// 判断 path 是不是通配符路径
+	// Wildcard path handling: creates or retrieves a wildcard child, enforcing rules against mixing wildcard
+	// with parameter and regular expression children.
 	if path == "*" {
+		// Check and enforce routing rule: Wildcards cannot exist alongside parameterized paths.
 		if n.paramChild != nil {
 			panic(errs.ErrPathNotAllowWildcardAndPath(path))
 		}
+		// Check and enforce routing rule: Wildcards cannot exist alongside regular expression paths.
 		if n.regChild != nil {
 			panic(errs.ErrRegularNotAllowWildcardAndRegular(path))
 		}
+		// Create a wildcard child node if one does not exist, initialize and store it for future retrievals.
 		if n.starChild == nil {
 			n.starChild = &node{path: path, typ: nodeTypeAny}
 		}
-		return n.starChild
+		return n.starChild // Return the wildcard child node.
 	}
 
-	// 判断 path 是不是参数路径，即以 : 开头的路径，需要进一步解析，判断是参数路由还是正则路由
+	// Parameterized path handling: parses the parameter name and expression, and creates or retrieves
+	// the corresponding parameterized or regular expression child node.
 	if path[0] == ':' {
 		paramName, expr, isReg := n.parseParam(path)
 		if isReg {
+			// For paths with an embedded regular expression, create or retrieve a regular expression child node.
 			return n.childOrCreateReg(path, expr, paramName)
 		}
+		// For standard parameterized paths, create or retrieve a parameterized child node.
 		return n.childOrCreateParam(path, paramName)
 	}
 
+	// Static path handling: creates or retrieves a static child node.
 	if n.children == nil {
+		// Initialize the children map if it hasn't been already to prevent nil map assignment errors.
 		n.children = make(map[string]*node)
 	}
-	// 从 children 里面查找
+	// Look for or create a static child node for the given path.
 	child, ok := n.children[path]
 	if !ok {
-		// 如果没有找到，创建一个新的节点，并且保存在 node 里面
+		// If the child node does not exist already, create it, initialize it with the path and type,
+		// and add it to the children map.
 		child = &node{path: path, typ: nodeTypeStatic}
 		n.children[path] = child
 	}
-	return child
+	return child // Return the static child node.
 }
 
+// childOrCreateParam is used to retrieve an existing or create a new parameterized child node associated with the current
+// node (n). It manages nodes that represent path parameters in a URL, usually denoted by a colon (':') followed by the
+// parameter name (e.g., ":id" in "/users/:id"). The method ensures that parameter nodes do not coexist with wildcard or
+// regular expression nodes, as per routing rules. It panics if a routing conflict occurs.
+
+// Parameters:
+// - path: The path segment that the method attempts to match or create a node for.
+// - paramName: The name of the parameter as extracted from the path.
+
+// The childOrCreateParam function performs the following actions:
+
+// 1. First, it checks if the current node has a child that is a regular expression node (regChild). If such a child
+//    exists, it's considered a routing conflict because a regular expression child cannot coexist with a parameterized
+//    path. In this case, the method panics with an appropriate error.
+// 2. Next, it checks for the presence of a wildcard child (starChild). Again, as per routing rules, a wildcard child
+//    cannot coexist with a parameterized child, and if found, the method panics with an error.
+// 3. The method then checks if a parameterized child node (paramChild) already exists. If it does and its path differs
+//    from the given 'path', this is considered a routing conflict (two different parameterized paths cannot be the same
+//    route segment), prompting the method to panic with a path clash error.
+// 4. If no parameterized child exists or if the existing one has the same path, the method is safe to proceed. If a new
+//    child needs to be created, it's initialized with the given 'path', 'paramName', and set to nodeTypeParam to
+//    denote its nature as a parameterized node.
+// 5. Finally, the existing or newly created parameterized child node is returned.
+
+// Note:
+// - This method updates the current node 'n' by potentially adding a paramChild.
+// - It only handles parameterized paths and is part of a broader routing system with rules to prevent routing conflicts.
 func (n *node) childOrCreateParam(path string, paramName string) *node {
+	// Enforce routing rules by checking for the presence of regular expression and wildcard children,
+	// and panic if necessary to prevent invalid routing configurations.
 	if n.regChild != nil {
 		panic(errs.ErrRegularNotAllowRegularAndPath(path))
 	}
 	if n.starChild != nil {
 		panic(errs.ErrWildcardNotAllowWildcardAndPath(path))
 	}
+	// Check if a parameterized child node already exists with the same path.
 	if n.paramChild != nil {
+		// If the paths differ, this denotes a routing conflict, and panic with an error.
 		if n.paramChild.path != path {
 			panic(errs.ErrPathClash(n.paramChild.path, path))
 		}
 	} else {
+		// If no parameterized child exists, create one with the provided path and parameter name.
 		n.paramChild = &node{path: path, paramName: paramName, typ: nodeTypeParam}
 	}
+	// Return the existing or newly created parameterized child node.
 	return n.paramChild
 }
 
+// childOrCreateReg retrieves or creates a child node that represents a path segment with an embedded regular
+// expression. This method is called when the path segment includes a parameter with a custom regular expression
+// constraint, denoting a more complex matching requirement than standard parameterized routes.
+
+// Parameters:
+// - path: The full path segment including the parameter and its associated regular expression (e.g., ":id(\\d+)").
+// - expr: The raw regular expression string used to match this parameter (e.g., "\\d+").
+// - paramName: The name of the parameter to be extracted from the path (e.g., "id").
+
+// The childOrCreateReg function performs these steps:
+
+// 1. It ensures that no wildcard child (starChild) exists, as mixing wildcards with regular expression constrained
+//    parameters is not permissible. If a wildcard is present, the function panics with the appropriate error.
+// 2. It ensures that no simple parameterized child (paramChild) exists, as such nodes cannot coexist with regular
+//    expression constrained parameters. If found, the function panics with a relevant error message.
+// 3. If a regular expression child (regChild) already exists, the method checks that its regular expression and
+//    parameter name match the current ones. If they do not, indicating a clash in the routing definitions, the
+//    method panics with a routing conflict error.
+// 4. If no regChild exists that meets the required criteria, the method creates one. This involves compiling the
+//    passed regular expression to create a 'regexp.Regexp' object. If compiling fails, it panics with an error
+//    that indicates an issue with the regular expression.
+// 5. Finally, the new or existing regular expression child node is returned.
+
+// Note:
+//   - The method updates the current 'node' by adding a regChild if necessary.
+//   - It only manages nodes with regular expression constraints and upholds routing system integrity by checking for
+//     potential routing definition clashes.
 func (n *node) childOrCreateReg(path string, expr string, paramName string) *node {
+	// Check for and enforce routing conflicts with wildcard and param nodes. Panic if a conflict exists.
 	if n.starChild != nil {
 		panic(errs.ErrWildcardNotAllowWildcardAndRegular(path))
 	}
 	if n.paramChild != nil {
 		panic(errs.ErrPathNotAllowPathAndRegular(path))
 	}
+	// If a regular expression child already exists, ensure it matches the new requirements. Otherwise, panic.
 	if n.regChild != nil {
+		// A routing definition clash occurs when the existing regChild's regular expression or parameter name
+		// does not match the new requirements. Panic with an error indicating this conflict.
 		if n.regChild.regExpr.String() != expr || n.paramName != paramName {
 			panic(errs.ErrRegularClash(n.regChild.path, path))
 		}
 	} else {
+		// Compile the new regular expression, and panic with an error if there's an issue with the compilation.
 		regExpr, err := regexp.Compile(expr)
 		if err != nil {
 			panic(errs.ErrRegularExpression(err))
 		}
+		// If successful, create a new regChild node with the compiled expression and other data, and assign it to the current node.
 		n.regChild = &node{path: path, paramName: paramName, regExpr: regExpr, typ: nodeTypeReg}
 	}
+	// Return the existing or newly created regChild node.
 	return n.regChild
 }
 
-// parseParam 用于解析判断是不是正则表达式
-// 第一个返回值是参数名字
-// 第二个返回值是正则表达式
-// 第三个返回值为 true 则说明是正则路由
+// parseParam analyzes a given path segment to identify and extract the name of the parameter and, optionally,
+// any regular expression associated with it. This is used in routing to handle dynamic segments in URLs. The
+// method returns a tuple with the parameter name, the extracted regular expression (if any), and a boolean
+// indicating whether a regular expression was found.
+
+// Parameters:
+// - path: A string representing the segment of the URL path that contains the parameter. This should start with
+//         a colon (':') followed by the parameter name and may include an embedded regular expression.
+
+// The parseParam function proceeds as follows:
+
+// 1. Removes the leading colon (':') from the path segment, as it only serves as an identifier of a parameter segment.
+// 2. Splits the remaining string into two parts at the first occurrence of an opening parenthesis '(' which would
+//    indicate the start of a regular expression constraint on the parameter.
+// 3. If the split result has two segments, then a regular expression is assumed to be present:
+//    - It further checks if the second segment has a closing parenthesis ')'. This confirms a well-formed regular
+//      expression constraint. If it is well-formed, the regular expression is extracted, excluding the parentheses.
+//    - It returns the parameter name, the regular expression without the enclosing parentheses, and true (for the
+//      boolean indicating the presence of a regular expression).
+// 4. If no regular expression is found or the regular expression is not well-formed (e.g., missing the closing
+//    parenthesis or not having any parentheses at all), it returns the parameter name as the whole path after
+//    the colon, an empty string for the regular expression, and false (no regular expression was found).
+
+// Note:
+//   - This method is utilized when building the routing tree to recognize and correctly process different node types
+//     based on their path definitions.
+//   - It is crucial for ensuring that URL parameters can be correctly matched and extracted during request handling.
 func (n *node) parseParam(path string) (string, string, bool) {
-	// 去除 :
+	// Remove the leading colon from the path to isolate the parameter name and potential regular expression.
 	path = path[1:]
+	// Attempt to split the path segment at the opening parenthesis to separate the parameter name from any regular expression.
 	segs := strings.SplitN(path, "(", 2)
+	// Check if a regular expression is present by seeing if there are two segments after the split.
 	if len(segs) == 2 {
+		// Assuming the second segment is a regular expression, check if it ends with a closing parenthesis.
 		expr := segs[1]
 		if strings.HasSuffix(expr, ")") {
+			// If so, return the parameter name, the regular expression without parentheses, and true.
 			return segs[0], expr[:len(expr)-1], true
 		}
 	}
+	// If there is no regular expression, return the parameter name, an empty string, and false.
 	return path, "", false
 }
 
+// matchInfo holds the necessary information for a matched route. It encapsulates the node that has been matched,
+// any path parameters extracted from the URL, and a list of middleware that should be applied for the route.
+// This struct is typically used in the context of a routing system, where it is responsible for carrying the
+// cumulative data required to handle an HTTP request after a route has been successfully matched.
+
+// Fields:
+// - n (*node): A pointer to the matched 'node' which represents the endpoint in the routing tree that has been
+//              matched against the incoming request path. This 'node' contains the necessary information to process
+//              the request further, such as associated handlers or additional routing information.
+// - pathParams (map[string]string): A map that stores the path parameters as key-value pairs, where the key is
+//                                   the name of the parameter (as defined in the path) and the value is the actual
+//                                   string that has been matched from the request URL. For example, for a route
+//                                   pattern "/users/:userID/posts/:postID", this map would contain entries for
+//                                   "userID" and "postID" if the incoming request path matched that pattern.
+// - mils ([]Middleware): A slice of 'Middleware' functions that are meant to be executed for the matched route
+//                        in the order they are included in the slice. Middleware functions are used to perform
+//                        operations such as request logging, authentication, and input validation before the
+//                        request reaches the final handler function.
+
+// Usage:
+// The 'matchInfo' struct is populated during the route-matching process. Once a request path is matched against
+// the routing tree, a 'matchInfo' instance is created and filled with the corresponding node, extracted path
+// parameters, and any middleware associated with the matched route. This instance is then passed along to the
+// request handling logic, where it guides the processing of the request through various middleware layers and
+// eventually to the appropriate handler that will generate the response.
 type matchInfo struct {
-	n          *node
+	// n is the node corresponding to the matched route in the routing tree. It provides access to any additional
+	// route-specific information required to handle the request.
+	n *node
+
+	// pathParams stores the parameters identified in the URL path, such as "id" in "/users/:id", mapped to their
+	// actual values as resolved from the incoming request.
 	pathParams map[string]string
-	mils       []Middleware
+
+	// mils is a collection of middleware functions to be executed sequentially for the matched route. These functions
+	// can modify the request context, perform checks, or carry out other pre-processing tasks.
+	mils []Middleware
 }
 
+// addValue is a method that adds a key-value pair to the pathParams map of the matchInfo struct. This method
+// serves to accumulate the parameters extracted from a matched URL path and store them for later use during
+// the request-handling process.
+
+// Parameters:
+// - key: A string representing the name of the URL parameter (e.g., "userID").
+// - value: A string representing the value of the URL parameter that has been extracted from the request
+//          URL (e.g., "42" for a userID).
+
+// The addValue function performs these steps:
+
+// 1. Checks if the pathParams map inside the matchInfo struct is nil, which would indicate that no parameters
+//    have been added yet. If it is nil, it initializes the pathParams map and instantly adds the key-value
+//    pair to it. This is necessary because you cannot add keys to a nil map; it must be initialized first.
+// 2. If the pathParams map is already initialized, it adds or overwrites the entry for the key with the new value.
+//    This ensures that the most recently processed value for a given key is stored in the map.
+
+// Usage:
+// The addValue method is typically called during the route matching process, where path segments corresponding
+// to parameters in the route pattern are parsed and their values accumulated. Each time a segment is processed
+// and a parameter value is extracted, addValue is used to save that value with the corresponding parameter name.
+
+// Example:
+// For a URL pattern like "/users/:userID", when processing a request path like "/users/42", the method would
+// be invoked as addValue("userID", "42"), adding the parameter "userID" with the value "42" to the pathParams map.
+
 func (m *matchInfo) addValue(key string, value string) {
+	// Initialize the pathParams map if it hasn't been already to avoid nil map assignment panic.
 	if m.pathParams == nil {
-		// 大多数情况，参数路径只会有一段
 		m.pathParams = map[string]string{key: value}
 	}
+	// Add or update the pathParams map with the key-value pair representing the URL parameter and its value.
 	m.pathParams[key] = value
 }

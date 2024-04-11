@@ -140,40 +140,44 @@ type HTTPServer struct {
 	templateEngine TemplateEngine                // Template processor interface
 }
 
-// InitHTTPServer initializes a new instance of HTTPServer with the provided options.
-// The options are applied to the server instance to configure various aspects such as
-// middlewares, template engine, and other settings. The log function for the server is
-// set to print messages to stdout using fmt.Printf by default. A default router is also
-// initialized and set on the server.
-//
-// Usage example:
-//
-//	server := InitHTTPServer(
-//	    ServerWithMiddleware(loggingMiddleware, authMiddleware),
-//	    ServerWithTemplateEngine(myTemplateEngine),
-//	)
-//	// The server is now configured with logging, authentication middleware and a template engine.
-//
+// InitHTTPServer initializes and returns a pointer to a new HTTPServer instance. The server can be customized by
+// passing in various HTTPServerOption functions, which will modify the server's configuration according to the
+// functionalities encapsulated by those options. This pattern is known as the "functional options" pattern and allows
+// for flexible and readable server configuration without the need for a potentially long list of parameters.
+
 // Parameters:
-//   - opts ...HTTPServerOption : A variadic slice of configuration options, each being a function
-//     that takes a pointer to an HTTPServer and applies a configuration to it.
-//
-// Returns:
-// - *HTTPServer : A pointer to the newly created and configured HTTPServer instance.
-//
-// Note:
-// The server is not started by this function and needs to be started separately using its
-// Start or ListenAndServe method.
+// - opts: A variadic array of HTTPServerOption functions. Each one is applied to the HTTPServer instance and can
+//         set or modify configurations such as middlewares, logging, server address, timeouts, etc.
+
+// The InitHTTPServer function operates in the following steps:
+
+// 1. Creates a new HTTPServer instance with some initial default settings.
+//   a. A router is initialized for the server to manage routing of incoming requests.
+//   b. A default logging function is set up to print messages to standard output, which can be overridden by an option.
+// 2. Iterates through each provided HTTPServerOption, applying it to the server instance. These options are functions
+//    that accept a *HTTPServer argument and modify its properties, thereby customizing the server according to the
+//    specific needs of the application.
+// 3. After applying all options, the function returns the customized HTTPServer instance, ready to be started and to
+//    begin handling incoming HTTP requests.
+
+// This initialization function abstracts away the complexity of server setup and allows developers to specify only the
+// options relevant to their application, leading to cleaner and more maintainable server initialization code.
+
 func InitHTTPServer(opts ...HTTPServerOption) *HTTPServer {
+	// Create a new HTTPServer with a default configuration.
 	res := &HTTPServer{
-		router: initRouter(),
-		log: func(msg string, args ...any) {
+		router: initRouter(), // Initialize the HTTPServer's router for request handling.
+		log: func(msg string, args ...any) { // Set a basic logging function using printf-style formatting.
 			fmt.Printf(msg, args...)
 		},
 	}
+
+	// Apply each provided HTTPServerOption to the HTTPServer to configure it according to the user's requirements.
 	for _, opt := range opts {
-		opt(res)
+		opt(res) // Each 'opt' is a function that modifies the 'res' HTTPServer instance.
 	}
+
+	// Return the now potentially configured HTTPServer instance.
 	return res
 }
 
@@ -292,143 +296,169 @@ func (s *HTTPServer) UseRoute(method string, path string, mils ...Middleware) {
 	s.registerRoute(method, path, nil, mils...)
 }
 
-// ServeHTTP implements the http.Handler interface and is the entry point for HTTP requests
-// coming to the server. This method wraps the incoming http.ResponseWriter and *http.Request
-// into a new Context object. It also sets up the middleware chain by wrapping the server's
-// main handler function with the middleware functions in reverse order.
-//
-// Once the middleware chain is set up, a special Middleware function is defined that ensures
-// the final response is written using flashResp method after the main handler function completes.
-// This middleware is then applied to the root of the chain.
-//
-// Finally, ServeHTTP calls the root of the middleware/handler chain with the newly created context
-// to handle the request and generate a response. Once the handling is complete, the response is sent
-// back to the client by flashResp being called from within the final Middleware function.
-//
-// Parameters:
-// - writer http.ResponseWriter : The ResponseWriter that is used to write the HTTP response.
-// - request *http.Request : The incoming HTTP request that needs to be handled.
-//
-// Note:
-// ServeHTTP is automatically called by the net/http package when the server receives a new
-// request, matching the signature required by the http.Handler interface.
-func (s *HTTPServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	ctx := &Context{
-		Request:        request,
-		ResponseWriter: writer,
-		templateEngine: s.templateEngine,
-	}
-	root := s.server
-	for i := len(s.mils) - 1; i >= 0; i-- {
-		root = s.mils[i](root)
-	}
+// ServeHTTP is the core method for handling incoming HTTP requests in the HTTPServer. This method fulfills the
+// http.Handler interface, making an HTTPServer instance compatible with Go's built-in HTTP server machinery.
+// ServeHTTP is responsible for creating the context for the request, applying middleware, and calling the final
+// request handler. After the request is processed, it ensures that any buffered response (if applicable) is flushed
+// to the client.
 
+// Parameters:
+// - writer: An http.ResponseWriter that is used to write the HTTP response to be sent to the client.
+// - request: An *http.Request that represents the client's HTTP request being handled.
+
+// The ServeHTTP function operates in the following manner:
+
+// 1. It begins by creating a new Context instance, which is a custom type holding the HTTP request and response
+//    writer, along with other request-specific information like the templating engine.
+// 2. It retrieves the root handler from the server's configuration 's.server', which represents the starting point
+//    for the request handling pipeline.
+// 3. Iteratively wraps the root handler with the server's configured middleware in reverse order. Middleware is
+//    essentially a chain of functions that can execute before and/or after the main request handler to perform
+//    tasks such as logging, authentication, etc.
+// 4. Introduces a final middleware that calls the next handler in the chain and then flushes any buffered response
+//    using 's.flashResp'. This ensures that even if a response is buffered (for performance reasons or to allow
+//    for manipulations), it gets sent out after the request is processed.
+// 5. Calls the fully wrapped root handler, beginning the execution of the middleware chain and ultimately invoking
+//    the appropriate request handler.
+
+func (s *HTTPServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	// Create the context that will traverse the request handling chain.
+	ctx := &Context{
+		Request:        request,          // The original HTTP request.
+		ResponseWriter: writer,           // The ResponseWriter to work with the HTTP response.
+		templateEngine: s.templateEngine, // The templating engine, if any, to render HTML views.
+	}
+	root := s.server // Start with the base server handler.
+	// Loop through all the server's middleware in reverse to construct the middleware chain.
+	for i := len(s.mils) - 1; i >= 0; i-- {
+		root = s.mils[i](root) // Wrap the current 'root' with the middleware function.
+	}
+	// Define a final Middleware to ensure that the response is flushed after handling the request.
 	var m Middleware = func(next HandleFunc) HandleFunc {
 		return func(ctx *Context) {
-			next(ctx)
-			s.flashResp(ctx)
+			next(ctx)        // Execute the next handler in the chain.
+			s.flashResp(ctx) // Flush the response after handling the request.
 		}
 	}
-
-	root = m(root)
-
-	root(ctx)
+	root = m(root) // Wrap the final Middleware around the root handler.
+	root(ctx)      // Execute the request handling starting from the root of the middleware chain.
 }
 
-// flashResp sends the HTTP response data to the client using the Context's ResponseWriter.
-// It first checks if a status code has been set on the context, and if so, writes that status
-// code to the response header. Then it writes the response data to the client. If the writing
-// operation encounters any errors or does not complete fully (i.e., all the response data
-// is not written), it logs an error message using the server's log function.
-//
-// The server's log function should provide a way of logging messages, matching the signature
-// of the log method defined on the HTTPServer. The default log implementation uses fmt.Printf
-// to print log messages to standard output, but it could be overridden by a custom logging
-// middleware if configured.
-//
+// flashResp is a method of HTTPServer that's responsible for flushing the response data held in the context to the
+// client. It checks if a response status code is set and writes it to the ResponseWriter before sending the response
+// data. If an error occurs during the writing process, the server's logging function is called to log the error.
+
 // Parameters:
-//   - ctx *Context : The context associated with the current HTTP request. It contains the
-//     ResponseWriter used to send headers and data to the client, as well as other response
-//     information such as status code and response data.
-//
-// Note:
-// This method does not handle the errors beyond logging. If logging or error handling
-// needs to be more robust, it should be implemented as part of the server's configuration
-// or within the middleware.
+// - ctx: A pointer to a Context that contains the HTTP request-specific data such as the response writer, status code,
+//        and response data.
+
+// The flashResp function operates as follows:
+
+// 1. Checks if the RespStatusCode within the Context is non-zero, indicating that a specific HTTP status code has been
+//    set to be sent to the client.
+// 2. If a specific status code is set, it writes that code to the ResponseWriter, which sends the HTTP status code to
+//    the client.
+// 3. After setting the status code (if applicable), it writes the response data stored in the context to the
+//    ResponseWriter.
+// 4. It also checks for any errors during the writing process and whether the entire response data was successfully
+//    written. Inconsistencies or errors will be logged using the server's logging function.
+
+// This method ensures that the response produced by the HTTPServer is correctly and completely transmitted to the client.
+// If something goes wrong during this process, it logs the issue for diagnostics and potential error handling.
+
 func (s *HTTPServer) flashResp(ctx *Context) {
+	// If an HTTP status code is set in the context, write it to the response header.
+	// Response headers must be written before any response data is sent to the client.
 	if ctx.RespStatusCode != 0 {
 		ctx.ResponseWriter.WriteHeader(ctx.RespStatusCode)
 	}
+
+	// Attempt to write the response data from the context to the client.
 	write, err := ctx.ResponseWriter.Write(ctx.RespData)
+
+	// If there's an error writing the response or the number of bytes written doesn't match the data length, log the error.
+	// It's important to log such events to diagnose and troubleshoot potential issues in serving HTTP responses.
 	if err != nil || write != len(ctx.RespData) {
-		s.log("写入响应数据失败 %v", err)
+		s.log("Failed to write response data %v", err)
 	}
 }
 
-// server is a core method that dispatches incoming requests to the appropriate handler functions
-// based on the HTTP method and the URL path specified in the request. It is responsible for
-// executing the logic to match the request against registered routes and invoking the corresponding
-// handler.
-//
+// server is a method of HTTPServer that processes an incoming HTTP request by searching for a matching route
+// and invoking the associated handler. If no matching route is found, or the found node doesn't have a handler,
+// it responds with a 404 Not Found status. This method marks the entry point for a request's handling logic
+// after passing through any configured middleware.
+
 // Parameters:
-//   - ctx *Context: A pointer to the Context struct which holds information about the current
-//     HTTP request and response state. This includes the request, response writer, status code,
-//     response data, path parameters, and the matched route.
-//
-// Operation:
-//  1. The method attempts to find a route matching the request's method and path.
-//  2. If no matching route is found, or the handler function is nil, the server responds with
-//     a 404 Not Found error.
-//  3. If a match is found, the method updates the Context with the path parameters and matched route.
-//  4. Lastly, it calls the registered handler function with the updated Context.
-//
-// Note:
-//   - This method is typically not called directly by the user, but is an integral part of the server's
-//     internal routing mechanism that automatically handles incoming requests.
+// - ctx: A pointer to a Context that contains the HTTP request contextual details such as the request itself,
+//        ResponseWriter for writing back the response, and other metadata regarding the request.
+
+// The server function performs the following actions:
+
+// 1. Searches for a route matching the current request's method and URL path in the server's routing structure.
+// 2. If a match is found (ok is true), and the found node (info.n) has a non-nil handler function, then the Context
+//    is enriched with the path parameters extracted from the URL and the matched route info. The associated handler
+//    function is then called with the updated context.
+// 3. If there is no match for the route, or the node doesn't have a handler, the server responds with a 404 Not Found
+//    status by setting the appropriate status code and response data in the context, which will later be sent back to
+//    the client.
+
+// This method ensures that a request is routed to the correct handler based on the defined routing rules.
+// If no appropriate handler is registered for the request, it ensures that the server responds with a proper
+// error message and status code.
+
 func (s *HTTPServer) server(ctx *Context) {
+	// Attempt to find a matching route in the server's routing structure based on the HTTP method and URL path.
 	info, ok := s.findRoute(ctx.Request.Method, ctx.Request.URL.Path)
+
+	// Check if a matching route is found and has a non-nil handler.
 	if !ok || info.n == nil || info.n.handler == nil {
-		ctx.RespStatusCode = http.StatusNotFound
-		ctx.RespData = []byte("NOT FOUND")
-		return
+		// Prepare a Not Found (404) response if no matching route is available.
+		ctx.RespStatusCode = http.StatusNotFound // Set the status code to 404.
+		ctx.RespData = []byte("NOT FOUND")       // Set the response body to "NOT FOUND".
+		return                                   // Return immediately since no further action is needed.
 	}
-	ctx.PathParams = info.pathParams
-	ctx.MatchedRoute = info.n.route
+
+	// Populate the context with the path parameters and the matched route info from the findRoute method.
+	ctx.PathParams = info.pathParams // Store any dynamic parameters from the URL path.
+	ctx.MatchedRoute = info.n.route  // Store the exact matched route pattern.
+
+	// Call the handler associated with the found route, passing in the updated context.
 	info.n.handler(ctx)
 }
 
-// Start begins running the HTTP server on the specified address. It sets up a TCP
-// listener on the given address and then starts handling incoming HTTP requests using
-// the server's ServeHTTP method.
-//
-// This method blocks while the server is running and only returns an error if there is
-// an issue starting the listener or serving the requests.
-//
+// Start initiates the HTTP server listening on the specified address. It sets up a TCP network listener on the
+// given address and then starts the HTTP server to accept and handle incoming requests using this listener. If
+// there is a problem creating the network listener or starting the server, it returns an error.
+
 // Parameters:
-//   - addr string : The address where the server should listen for incoming HTTP requests,
-//     in the form "host:port", where host is the IP address or hostname, and port is the
-//     port number on which the server should listen.
-//
-// Returns:
-//   - error : Non-nil error if there was an issue with starting the listener or handling
-//     the requests; otherwise, nil.
-//
-// Example usage:
-//
-//	err := server.Start("localhost:8080")
-//	if err != nil {
-//	    log.Fatal("Failed to start server:", err)
-//	}
-//
-// Note:
-// The method uses the net.Listen function to set up the TCP listener and the http.Serve
-// function to handle requests, which are part of Go's standard library.
+// - addr: A string specifying the TCP address for the server to listen on. This typically includes a hostname or
+//         IP followed by a colon and the port number (e.g., "localhost:8080" or ":80"). If only the port number
+//         is specified with a leading colon, the server will listen on all available IP addresses on the given port.
+
+// The Start function operates in the following manner:
+
+// 1. Calls net.Listen with "tcp" as the network type and the provided address. This attempts to create a listener
+//    that can accept incoming TCP connections on the specified address.
+// 2. If net.Listen returns an error, it is immediately returned to the caller, indicating that the listener could
+//    not be created (possibly due to an invalid address, inability to bind to the port, etc.).
+// 3. If the listener is successfully created, the function then calls http.Serve with the listener and the server
+//    itself as arguments. This starts the HTTP server, which begins listening for and handling requests. The server
+//    will use the ServeHTTP method of the HTTPServer to process each request.
+// 4. If http.Serve encounters an error, it will also be returned to the caller. This can happen if there's an
+//    unexpected issue while the server is running, such as a failure to accept a connection.
+
+// The Start method is a blocking call. Once called, it will continue to run, serving incoming HTTP requests until
+// an error is encountered or the server is manually stopped.
+
 func (s *HTTPServer) Start(addr string) error {
+	// Create a new TCP listener on the specified address.
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
-		return err
+		return err // Return the error if the listener could not be created.
 	}
-	return http.Serve(l, s)
+
+	// Start the HTTP server with the newly created listener, using 's' (HTTPServer) as the handler.
+	return http.Serve(l, s) // Return the result of http.Serve, which will block until the server stops.
 }
 
 // Get registers a new route and its associated handler function for HTTP GET requests.

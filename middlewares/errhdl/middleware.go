@@ -2,26 +2,99 @@ package errhdl
 
 import "github.com/dormoron/mist"
 
+// MiddlewareBuilder is a struct responsible for creating middleware that can manage response caching.
+// This cache is used to store and retrieve pre-generated responses for different HTTP status codes.
 type MiddlewareBuilder struct {
-	resp map[int][]byte
+	// resp is a map where the key is an HTTP status code (int) and
+	// the value is a slice of bytes representing the cached response body for the given status code.
+	// This allows the middleware to quickly return a standard response for certain status codes,
+	// potentially improving performance by avoiding the need to regenerate identical responses.
+	resp map[int][]byte // The map is used for caching HTTP responses.
 }
 
+// InitMiddlewareBuilder is a function that initializes a new instance of MiddlewareBuilder.
+// The purpose of this initialization is to set up a MiddlewareBuilder with a pre-initialized map
+// that is ready to cache responses by their HTTP status codes.
+//
+// Return:
+//
+//	Returns a pointer to a newly allocated MiddlewareBuilder with a response map ready for use.
 func InitMiddlewareBuilder() *MiddlewareBuilder {
-	return &MiddlewareBuilder{resp: make(map[int][]byte)}
+	// Create a new MiddlewareBuilder instance with its 'resp' field initialized.
+	// The 'resp' field is a map that associates HTTP status codes (int) with corresponding response
+	// bodies ([]byte). By initializing this map, the MiddlewareBuilder is ready to cache responses
+	// immediately after creation without additional setup.
+	return &MiddlewareBuilder{
+		resp: make(map[int][]byte), // Initialize the 'resp' map to an empty map[int][]byte.
+	}
 }
+
+// AddCode is a method on the MiddlewareBuilder struct. It associates a given HTTP status code
+// with a response body which is intended to be cached and reused. By calling this method, users
+// can define standard responses for specific HTTP status codes to be used across the application.
+//
+// Parameters:
+//
+//	status: An integer representing the HTTP status code. Common status codes are 200 for OK,
+//	        404 for Not Found, 500 for Internal Server Error, etc.
+//	data: A slice of bytes representing the response body to be cached in association with
+//	      the given status code. This could be a static file, a dynamically generated payload,
+//	      or even an error message.
+//
+// Returns:
+//
+//	Returns a pointer to the MiddlewareBuilder itself, which allows for method chaining when
+//	setting up multiple status code and response body pairings.
+//
+// Example:
+//
+//	mb := InitMiddlewareBuilder()
+//	mb.AddCode(404, []byte("Not Found"))
+//	// This can now be chained like so...
+//	mb.AddCode(500, []byte("Internal Server Error")).AddCode(200, []byte("OK"))
 func (m *MiddlewareBuilder) AddCode(status int, data []byte) *MiddlewareBuilder {
+	// Assign the 'data' slice to the 'resp' map at the key corresponding to the status code.
+	// This effectively caches the response body for the given status code.
 	m.resp[status] = data
+
+	// Return the pointer to the MiddlewareBuilder to allow for method chaining.
 	return m
 }
 
+// Build creates and returns a middleware function compatible with the mist framework's Middleware type.
+// The middleware function produced by Build intercepts the HTTP response by checking the current
+// response status code in the context against the cached responses in the MiddlewareBuilder.
+// If a cached response is found, it replaces the response data in the context with the cached data.
+// This allows for consistent and potentially pre-processed responses for certain status codes.
+//
+// Returns:
+//
+//	mist.Middleware: A middleware function that can be used with the mist framework to intercept
+//	                 and potentially modify response data based on status code caching.
+//
+// Example:
+//
+//	mb := InitMiddlewareBuilder().
+//	        AddCode(404, []byte("Not Found")).
+//	        AddCode(500, []byte("Internal Server Error"))
+//	router.Use(mb.Build()) // Applying the middleware to the router
 func (m MiddlewareBuilder) Build() mist.Middleware {
+	// The returned function is a closure that captures the current state of the MiddlewareBuilder.
 	return func(next mist.HandleFunc) mist.HandleFunc {
+		// The middleware function expects the next handler in the chain to be called with context.
 		return func(ctx *mist.Context) {
+			// The next middleware or final handler is called first to determine the response status code.
 			next(ctx)
+
+			// Attempt to retrieve the cached response data for the response status code.
 			resp, ok := m.resp[ctx.RespStatusCode]
+			// If the response is in the cache (ok == true), replace the context's response data
+			// with the cached data. This changes the response that will be sent back to the client.
 			if ok {
 				ctx.RespData = resp
 			}
+			// If the response is not cached, the middleware does nothing, thus allowing the response
+			// generated by the next handler to pass through unmodified.
 		}
 	}
 }
