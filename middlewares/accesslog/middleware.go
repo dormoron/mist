@@ -3,6 +3,7 @@ package accesslog
 import (
 	"encoding/json"
 	"github.com/dormoron/mist"
+	"log"
 )
 
 // MiddlewareBuilder is a struct that facilitates the creation of middleware functions with
@@ -72,6 +73,31 @@ func (b *MiddlewareBuilder) LogFunc(fn func(log string)) *MiddlewareBuilder {
 
 	// Returns the MiddlewareBuilder instance to allow for method chaining.
 	return b
+}
+
+// InitBuilder initializes a new instance of the MiddlewareBuilder struct with default
+// configuration settings. It sets up a standard logging function that will log access
+// events using the Go standard library's log package. The returned MiddlewareBuilder
+// can be further configured with additional options before being used to create
+// middleware for an HTTP server.
+//
+// Returns:
+// - A pointer to a new MiddlewareBuilder with default log function configuration.
+//
+// Usage:
+//   - builder := InitBuilder()
+//     This will create a new MiddlewareBuilder with a default log function.
+func InitBuilder() *MiddlewareBuilder {
+	// Create a new MiddlewareBuilder instance with default configurations.
+	return &MiddlewareBuilder{
+		// Set the logFunc field to a default function that uses the log package's Println method.
+		// This function prints the provided accessLog string to the standard logger, which by default
+		// outputs to os.Stderr. The log output includes a timestamp and the file name and line number
+		// of the log call, a behavior determined by the log package's standard flags.
+		logFunc: func(accessLog string) {
+			log.Println(accessLog)
+		},
+	}
 }
 
 // Build constructs a middleware function that is compliant with the mist framework's Middleware type.
