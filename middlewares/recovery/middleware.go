@@ -1,4 +1,4 @@
-package recover
+package recovery
 
 import "github.com/dormoron/mist"
 
