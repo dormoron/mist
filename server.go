@@ -295,6 +295,40 @@ func (s *HTTPServer) UseRoute(method string, path string, mils ...Middleware) {
 	s.registerRoute(method, path, nil, mils...)
 }
 
+// UseForAll associates the provided middlewares with all HTTP methods for the specified path.
+// This method configures the HTTP server to apply the given middlewares to every request method
+// (GET, POST, OPTIONS, etc.) for the specified route path. This is useful when you want consistent
+// middleware execution for a path, irrespective of the HTTP method used in the request.
+//
+// Parameters:
+// - path: The URL pattern to match against incoming request URLs.
+// - mdls: A variadic list of middlewares to be applied to all requests for the route.
+//
+// Usage:
+//   - server.UseForAll("/api/resource", loggerMiddleware, authMiddleware)
+//     This example would apply the logger and auth middlewares to all request
+//     methods for path "/api/resource".
+func (s *HTTPServer) UseForAll(path string, mdls ...Middleware) {
+	// Register the middlewares for the HTTP GET method for the specified path.
+	s.registerRoute(http.MethodGet, path, nil, mdls...)
+	// Register the middlewares for the HTTP POST method for the specified path.
+	s.registerRoute(http.MethodPost, path, nil, mdls...)
+	// Register the middlewares for the HTTP OPTIONS method for the specified path.
+	s.registerRoute(http.MethodOptions, path, nil, mdls...)
+	// Register the middlewares for the HTTP CONNECT method for the specified path.
+	s.registerRoute(http.MethodConnect, path, nil, mdls...)
+	// Register the middlewares for the HTTP DELETE method for the specified path.
+	s.registerRoute(http.MethodDelete, path, nil, mdls...)
+	// Register the middlewares for the HTTP HEAD method for the specified path.
+	s.registerRoute(http.MethodHead, path, nil, mdls...)
+	// Register the middlewares for the HTTP PATCH method for the specified path.
+	s.registerRoute(http.MethodPatch, path, nil, mdls...)
+	// Register the middlewares for the HTTP PUT method for the specified path.
+	s.registerRoute(http.MethodPut, path, nil, mdls...)
+	// Register the middlewares for the HTTP TRACE method for the specified path.
+	s.registerRoute(http.MethodTrace, path, nil, mdls...)
+}
+
 // ServeHTTP is the core method for handling incoming HTTP requests in the HTTPServer. This method fulfills the
 // http.Handler interface, making an HTTPServer instance compatible with Go's built-in HTTP server machinery.
 // ServeHTTP is responsible for creating the context for the request, applying middleware, and calling the final
