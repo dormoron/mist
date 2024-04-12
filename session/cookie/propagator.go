@@ -150,6 +150,30 @@ func WithCookieName(name string) PropagatorOptions {
 	}
 }
 
+// WithCookieOption returns a PropagatorOptions function that, when applied, configures a Propagator instance
+// with a custom cookie option modification function. This allows the caller to specify exactly how http.Cookies
+// should be modified by the Propagator when it's working with them.
+//
+// Parameters:
+//   - opt: This is a function that takes a pointer to a http.Cookie and modifies it. The modifications can include
+//     setting the Secure flag, HttpOnly flag, adjusting the MaxAge property, and so on. The function encapsulates
+//     the intended behavior on the cookie, and this behavior is applied each time the Propagator deals with
+//     setting or altering a cookie.
+//
+// Returns:
+//   - A function conforming to the PropagatorOptions type. When this function is applied to a Propagator instance,
+//     it sets the instance's `cookieOption` field to the `opt` function provided.
+func WithCookieOption(opt func(c *http.Cookie)) PropagatorOptions {
+	// Return a PropagatorOptions function. This is a higher-order function that takes another function as an argument,
+	// and returns a function as a result.
+	return func(propagator *Propagator) {
+		// Within the returned PropagatorOptions function, assign the provided opt function to the propagator's
+		// cookieOption field. This operation modifies the behavior of the Propagator specifically with how it
+		// will handle http.Cookies.
+		propagator.cookieOption = opt
+	}
+}
+
 // Inject attaches a cookie with a specified ID to the HTTP response writer provided.
 // This method is a part of the Propagator struct type and is used for setting a
 // session cookie into the HTTP response that will be sent back to the client.
