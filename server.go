@@ -490,7 +490,7 @@ func (s *HTTPServer) Start(addr string) error {
 	return http.Serve(l, s) // Return the result of http.Serve, which will block until the server stops.
 }
 
-// Get registers a new route and its associated handler function for HTTP GET requests.
+// GET registers a new route and its associated handler function for HTTP GET requests.
 // This method is a shortcut for registering routes that should only respond to GET HTTP
 // method, typically used for retrieving resources.
 //
@@ -512,11 +512,11 @@ func (s *HTTPServer) Start(addr string) error {
 // The method internally calls registerRoute to add the route to the server's routing
 // table with the method specified as `http.MethodGet`, which ensures that only GET
 // requests are handled by the provided handler.
-func (s *HTTPServer) Get(path string, handleFunc HandleFunc) {
+func (s *HTTPServer) GET(path string, handleFunc HandleFunc) {
 	s.registerRoute(http.MethodGet, path, handleFunc)
 }
 
-// Head registers a new route and its associated handler function for HTTP HEAD requests.
+// HEAD registers a new route and its associated handler function for HTTP HEAD requests.
 // This method is used to handle requests where the client is interested only in the response headers,
 // and not the actual body of the response, which is typical behavior of a HEAD request in HTTP.
 //
@@ -538,11 +538,11 @@ func (s *HTTPServer) Get(path string, handleFunc HandleFunc) {
 // The method utilizes the registerRoute internal function to add the route to the server's
 // routing table specifically for the HEAD HTTP method, which ensures that only HEAD
 // requests will trigger the execution of the provided handler function.
-func (s *HTTPServer) Head(path string, handleFunc HandleFunc) {
+func (s *HTTPServer) HEAD(path string, handleFunc HandleFunc) {
 	s.registerRoute(http.MethodHead, path, handleFunc)
 }
 
-// Post registers a new route and its associated handler function for handling HTTP POST requests.
+// POST registers a new route and its associated handler function for handling HTTP POST requests.
 // This method is used for routes that should accept data sent to the server, usually for the purpose of
 // creating or updating resources.
 //
@@ -562,11 +562,11 @@ func (s *HTTPServer) Head(path string, handleFunc HandleFunc) {
 // Note:
 // The method delegates to registerRoute, internally setting the HTTP method to `http.MethodPost`. This
 // ensures that the registered handler is invoked only for POST requests matching the specified path.
-func (s *HTTPServer) Post(path string, handleFunc HandleFunc) {
+func (s *HTTPServer) POST(path string, handleFunc HandleFunc) {
 	s.registerRoute(http.MethodPost, path, handleFunc)
 }
 
-// Put registers a new route and its associated handler function for handling HTTP PUT requests.
+// PUT registers a new route and its associated handler function for handling HTTP PUT requests.
 // This method is typically used to update an existing resource or create a new resource at a specific URL.
 //
 // Parameters:
@@ -586,11 +586,11 @@ func (s *HTTPServer) Post(path string, handleFunc HandleFunc) {
 // By calling registerRoute and specifying `http.MethodPut`, this method ensures that the handler is
 // specifically associated with PUT requests. If a PUT request is made on the matched path, the
 // corresponding handler function will be executed.
-func (s *HTTPServer) Put(path string, handleFunc HandleFunc) {
+func (s *HTTPServer) PUT(path string, handleFunc HandleFunc) {
 	s.registerRoute(http.MethodPut, path, handleFunc)
 }
 
-// Patch registers a new route with an associated handler function for HTTP PATCH requests.
+// PATCH registers a new route with an associated handler function for HTTP PATCH requests.
 // This method is generally used for making partial updates to an existing resource.
 //
 // Parameters:
@@ -610,11 +610,11 @@ func (s *HTTPServer) Put(path string, handleFunc HandleFunc) {
 // Registering the route with the `http.MethodPatch` constant ensures that only PATCH requests are
 // handled by the provided function. The PATCH method is typically used to apply a partial update to
 // a resource, and this function is where you would define how the server handles such requests.
-func (s *HTTPServer) Patch(path string, handleFunc HandleFunc) {
+func (s *HTTPServer) PATCH(path string, handleFunc HandleFunc) {
 	s.registerRoute(http.MethodPatch, path, handleFunc)
 }
 
-// Delete registers a new route with an associated handler function for HTTP DELETE requests.
+// DELETE registers a new route with an associated handler function for HTTP DELETE requests.
 // This method is used to remove a resource identified by a URI.
 //
 // Parameters:
@@ -635,11 +635,11 @@ func (s *HTTPServer) Patch(path string, handleFunc HandleFunc) {
 // Note:
 // Using `http.MethodDelete` in the call to registerRoute confines this handler to respond
 // solely to DELETE requests, providing a way to define how the server handles deletions.
-func (s *HTTPServer) Delete(path string, handleFunc HandleFunc) {
+func (s *HTTPServer) DELETE(path string, handleFunc HandleFunc) {
 	s.registerRoute(http.MethodDelete, path, handleFunc)
 }
 
-// Connect registers a new route with an associated handler function for handling HTTP CONNECT
+// CONNECT registers a new route with an associated handler function for handling HTTP CONNECT
 // requests. The HTTP CONNECT method is utilized primarily for establishing a tunnel to a server
 // identified by a given URI.
 //
@@ -662,11 +662,11 @@ func (s *HTTPServer) Delete(path string, handleFunc HandleFunc) {
 // The use of `http.MethodConnect` ensures that only HTTP CONNECT requests are matched to
 // this handler, facilitating the appropriate processing logic for these specialized request
 // types, which are different from the standard GET, POST, PUT, etc., methods.
-func (s *HTTPServer) Connect(path string, handleFunc HandleFunc) {
+func (s *HTTPServer) CONNECT(path string, handleFunc HandleFunc) {
 	s.registerRoute(http.MethodConnect, path, handleFunc)
 }
 
-// Options registers a new route with an associated handler function for HTTP OPTIONS requests.
+// OPTIONS registers a new route with an associated handler function for HTTP OPTIONS requests.
 // The HTTP OPTIONS method is used to describe the communication options for the target resource.
 //
 // Parameters:
@@ -689,11 +689,11 @@ func (s *HTTPServer) Connect(path string, handleFunc HandleFunc) {
 // standard practice to implement this method on a server to inform clients about the methods and
 // content types that the server is capable of handling, thereby aiding the client's decision-making
 // regarding further actions.
-func (s *HTTPServer) Options(path string, handleFunc HandleFunc) {
+func (s *HTTPServer) OPTIONS(path string, handleFunc HandleFunc) {
 	s.registerRoute(http.MethodOptions, path, handleFunc)
 }
 
-// Trace registers a new route with an associated handler function for HTTP TRACE requests.
+// TRACE registers a new route with an associated handler function for HTTP TRACE requests.
 // The HTTP TRACE method is used to echo back the received request so that a client can see what
 // (if any) changes or additions have been made by intermediate servers.
 //
@@ -714,6 +714,6 @@ func (s *HTTPServer) Options(path string, handleFunc HandleFunc) {
 // Registering this route specifically listens for HTTP TRACE requests by using `http.MethodTrace`.
 // This is helpful for debugging purposes where the client needs to understand what headers and
 // body are being received by the server after any possible alterations by intermediate devices.
-func (s *HTTPServer) Trace(path string, handleFunc HandleFunc) {
+func (s *HTTPServer) TRACE(path string, handleFunc HandleFunc) {
 	s.registerRoute(http.MethodTrace, path, handleFunc)
 }

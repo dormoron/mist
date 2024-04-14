@@ -26,6 +26,9 @@ var (
 	errRouterNotString                    = errors.New("web: route is an empty string")
 	errRouterFront                        = errors.New("web: route must start with '/'")
 	errRouterBack                         = errors.New("web: route cannot end with '/'")
+	errRouterGroupFront                   = errors.New("web: route group must start with '/'")
+	errRouterGroupBack                    = errors.New("web: route group cannot end with '/'")
+	errRouterChildConflict                = errors.New("web: Child routes must start with '/'")
 	errRouterConflict                     = errors.New("web: route conflict")
 	errRouterNotSymbolic                  = errors.New("web: illegal route. Routes like //a/b, /a//b etc. are not allowed")
 )
@@ -99,6 +102,18 @@ func ErrRouterFront() error {
 
 func ErrRouterBack() error {
 	return fmt.Errorf("%w", errRouterBack)
+}
+
+func ErrRouterGroupFront() error {
+	return fmt.Errorf("%w", errRouterGroupFront)
+}
+
+func ErrRouterGroupBack() error {
+	return fmt.Errorf("%w", errRouterGroupBack)
+}
+
+func ErrRouterChildConflict() error {
+	return fmt.Errorf("%w", errRouterChildConflict)
 }
 
 func ErrRouterConflict(val string) error {
