@@ -32,7 +32,7 @@ type routerGroup struct {
 	middles []Middleware
 }
 
-// newGroup creates and returns a new routerGroup attached to the router it is called on.
+// NewGroup creates and returns a new routerGroup attached to the router it is called on.
 // The method ensures the provided prefix conforms to format requirements by checking
 // if it starts and does not end with a forward slash, unless it is the root group ("/").
 // This method panics if the prefix is invalid to prevent router misconfiguration.
@@ -52,8 +52,8 @@ type routerGroup struct {
 //
 // Usage:
 // r := &router{} // Assume router is already initialized
-// group := r.newGroup("/api", loggingMiddleware, authMiddleware)
-func (r *router) newGroup(prefix string, ms ...Middleware) *routerGroup {
+// group := r.NewGroup("/api", loggingMiddleware, authMiddleware)
+func (r *router) NewGroup(prefix string, ms ...Middleware) *routerGroup {
 	// Check if the prefix is empty or doesn't start with a '/'
 	if prefix == "" || prefix[0] != '/' {
 		panic(errs.ErrRouterGroupFront()) // Panic with a predefined error for incorrect prefix start
