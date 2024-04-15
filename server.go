@@ -1,9 +1,9 @@
 package mist
 
 import (
-	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 )
 
 // HandleFunc defines the function signature for an HTTP request handler specific to your web framework.
@@ -108,36 +108,62 @@ type Server interface {
 //	)
 type HTTPServerOption func(server *HTTPServer) // Functional option for configuring an HTTPServer
 
-// HTTPServer defines the structure of an HTTP server with routing capabilities, middleware support,
-// logging functionality, and a template engine for rendering HTML templates.
-//
-// Fields:
-//
-//   - router: Embeds the routing information which includes the tree of routes and handlers that
-//     the server uses to match incoming requests to their respective handlers.
-//
-//   - mils []Middleware: A slice that holds the globally applied middleware. These middleware
-//     functions are executed for every request in the order they are added. They can be used to
-//     modify the http.Handler behaviour, perform actions such as logging, authentication etc.
-//
-//   - log func(msg string, args ...any): A function for logging where msg is a formatted log message
-//     and args are optional arguments which may be included in the formatted output. Developers can
-//     use this to output relevant log information or to integrate third-party logging libraries.
-//
-//   - templateEngine: An interface that represents the template engine used by the server
-//     to render HTML templates. This allows for dynamic HTML content generation based on data models
-//     and can be customized by the developer to use the desired templating system.
-//
+// HTTPServer is a struct that defines the basic structure of an HTTP server
+// within a web application. It encapsulates the components necessary for handling
+// HTTP requests, such as routing, middleware processing, logging, and template
+// rendering. By organizing these functionalities into a single struct, it provides
+// a cohesive framework for developers to manage the server's behavior and configure
+// its various components efficiently.
+
+// Embedded and Fields:
+//   router: The router is an embedded field representing the server's routing
+//           mechanism. As an embedded field, it provides the HTTPServer direct
+//           access to the routing methods. The router is responsible for
+//           mapping incoming requests to the appropriate handler functions
+//           based on URL paths and HTTP methods.
+
+//   mils ([]Middleware): The mils slice holds the middleware functions that
+//                        the server will execute sequentially for each request.
+//                        Middleware functions are used to intercept and manipulate
+//                        requests and responses, allowing for tasks such as
+//                        authentication, logging, and session management to be
+//                        handled in a modular fashion.
+
+//   log (Logger): The log field is an instance of the Logger interface. This
+//                 abstraction allows the server to utilize various logging
+//                 implementations, providing the flexibility to log server events,
+//                 errors, and other informational messages in a standardized manner.
+
+//   templateEngine (TemplateEngine): The templateEngine field is an interface
+//                                    that abstracts away the specifics of how
+//                                    HTML templates are processed and rendered.
+//                                    It allows the server to execute templates
+//                                    and serve dynamic content, making it easy
+//                                    to integrate different template processing
+//                                    systems according to the application's needs.
+
 // Usage:
-// An instance of HTTPServer typically starts by configuring routes, middleware, and the template engine.
-// Once set up, the server can handle HTTP requests, match them to their designated handlers, and generate
-// dynamic responses. Logging is facilitated through the provided log function, enabling tracking of server
-// activity and diagnosing issues.
+// When constructing an HTTPServer, developers must initialize each component
+// before starting the server:
+
+// - The router must be set up with routes that map URLs to handler functions.
+// - Middleware functions must be added to the mils slice in the necessary order
+//   as they will be executed sequentially on each request.
+// - A Logger implementation must be provided to the log field to record server
+//   operations, errors, and other events.
+// - If the server will serve dynamic HTML content, a TemplateEngine that
+//   complies with the templateEngine interface must be assigned, enabling the
+//   server to render HTML templates with dynamic data.
+
+// By ensuring all these components are properly initialized, the HTTPServer
+// can efficiently manage inbound requests, apply necessary pre-processing,
+// handle routing, execute business logic, and generate dynamic responses.
+
 type HTTPServer struct {
-	router                                       // Embedded routing management
-	mils           []Middleware                  // Middleware stack
-	log            func(msg string, args ...any) // Logging function
-	templateEngine TemplateEngine                // Template processor interface
+	router                        // Embedded routing management. Provides direct access to routing methods.
+	mils           []Middleware   // Middleware stack. A slice of Middleware functions to process requests.
+	log            Logger         // Logger interface. Allows for flexible and consistent logging.
+	templateEngine TemplateEngine // Template processor interface. Facilitates HTML template rendering.
 }
 
 // InitHTTPServer initializes and returns a pointer to a new HTTPServer instance. The server can be customized by
@@ -166,9 +192,6 @@ func InitHTTPServer(opts ...HTTPServerOption) *HTTPServer {
 	// Create a new HTTPServer with a default configuration.
 	res := &HTTPServer{
 		router: initRouter(), // Initialize the HTTPServer's router for request handling.
-		log: func(msg string, args ...any) { // Set a basic logging function using printf-style formatting.
-			fmt.Printf(msg, args...)
-		},
 	}
 
 	// Apply each provided HTTPServerOption to the HTTPServer to configure it according to the user's requirements.
@@ -376,41 +399,42 @@ func (s *HTTPServer) ServeHTTP(writer http.ResponseWriter, request *http.Request
 	root(ctx)      // Execute the request handling starting from the root of the middleware chain.
 }
 
-// flashResp is a method of HTTPServer that's responsible for flushing the response data held in the context to the
-// client. It checks if a response status code is set and writes it to the ResponseWriter before sending the response
-// data. If an error occurs during the writing process, the server's logging function is called to log the error.
+// flashResp is a method on the HTTPServer struct that commits the HTTP response
+// to the client. It is responsible for finalizing the response status code, setting
+// the appropriate headers, and writing the response data to the client. If any
+// errors occur during the response writing process, it will log a fatal error using
+// the server's configured default logger.
 //
 // Parameters:
-//   - ctx: A pointer to a Context that contains the HTTP request-specific data such as the response writer, status code,
-//     and response data.
 //
-// The flashResp function operates as follows:
+//	ctx *Context: A pointer to the Context struct that contains information about
+//	              the current request, response, and additional data relevant to the
+//	              HTTP transaction. The Context struct holds the response writer,
+//	              the status code, and the response data to be sent back to the client.
 //
-//  1. Checks if the RespStatusCode within the Context is non-zero, indicating that a specific HTTP status code has been
-//     set to be sent to the client.
-//  2. If a specific status code is set, it writes that code to the ResponseWriter, which sends the HTTP status code to
-//     the client.
-//  3. After setting the status code (if applicable), it writes the response data stored in the context to the
-//     ResponseWriter.
-//  4. It also checks for any errors during the writing process and whether the entire response data was successfully
-//     written. Inconsistencies or errors will be logged using the server's logging function.
-//
-// This method ensures that the response produced by the HTTPServer is correctly and completely transmitted to the client.
-// If something goes wrong during this process, it logs the issue for diagnostics and potential error handling.
+// Usage:
+// This method is typically called after an HTTP request has been processed by
+// the server's handler functions and any associated middleware. It ensures that
+// the HTTP response is correctly formed and transmitted to the client, concluding
+// the request-handling cycle.
 func (s *HTTPServer) flashResp(ctx *Context) {
-	// If an HTTP status code is set in the context, write it to the response header.
-	// Response headers must be written before any response data is sent to the client.
-	if ctx.RespStatusCode != 0 {
+	// If a status code has been set on the Context, write it as the HTTP response status code.
+	if ctx.RespStatusCode > 0 {
 		ctx.ResponseWriter.WriteHeader(ctx.RespStatusCode)
 	}
 
-	// Attempt to write the response data from the context to the client.
-	write, err := ctx.ResponseWriter.Write(ctx.RespData)
+	// Calculate the length of the response data and set the "Content-Length" header accordingly.
+	// The Content-Length header is important as it tells the client how many bytes of data to expect.
+	ctx.ResponseWriter.Header().Set("Content-Length", strconv.Itoa(len(ctx.RespData)))
 
-	// If there's an error writing the response or the number of bytes written doesn't match the data length, log the error.
-	// It's important to log such events to diagnose and troubleshoot potential issues in serving HTTP responses.
-	if err != nil || write != len(ctx.RespData) {
-		s.log("Failed to write response data %v", err)
+	// Write the response data to the HTTP client. The Write method of ResponseWriter
+	// is used to send the response payload contained within ctx.RespData.
+	_, err := ctx.ResponseWriter.Write(ctx.RespData)
+	if err != nil {
+		// In the event of a failure to write the response data to the client,
+		// log a fatal error with the defaultLogger. A fatal log typically indicates an
+		// error so severe that it is impossible to continue the operation of the program.
+		defaultLogger.Fatalln("Failed to write response data:", err)
 	}
 }
 
