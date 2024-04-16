@@ -250,7 +250,7 @@ func (c *Context) RespJSON(status int, val any) error {
 	if err != nil {
 		return err
 	}
-	c.ResponseWriter.WriteHeader(status)
+	c.writeHeader(status)
 	c.ResponseWriter.Header().Set("Content-Type", "application/json")
 	c.ResponseWriter.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	c.RespData = data
