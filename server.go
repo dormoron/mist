@@ -419,8 +419,8 @@ func (s *HTTPServer) ServeHTTP(writer http.ResponseWriter, request *http.Request
 // the request-handling cycle.
 func (s *HTTPServer) flashResp(ctx *Context) {
 	// If a status code has been set on the Context, write it as the HTTP response status code.
-	if ctx.RespStatusCode > 0 {
-		ctx.ResponseWriter.WriteHeader(ctx.RespStatusCode)
+	if !ctx.headerWritten && ctx.RespStatusCode > 0 {
+		ctx.writeHeader(ctx.RespStatusCode)
 	}
 
 	// Calculate the length of the response data and set the "Content-Length" header accordingly.

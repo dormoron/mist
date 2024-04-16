@@ -8,20 +8,93 @@ import (
 	"strconv"
 )
 
-// Context holds all the essential information required for processing an HTTP request.
-// It contains the actual HTTP request, a writer to send the response, path parameters extracted from the URL,
-// query parameters, the route that matched the request, the response data and status code to return to the client,
-// a template engine for rendering views, and a general-purpose map to hold any user-defined values.
+// Context is a custom type designed to carry the state and data needed to process
+// an HTTP request within the application. It provides context around the HTTP
+// request, including both the request and response information, as well as additional
+// data needed by handlers to fulfill the request.
 type Context struct {
-	Request        *http.Request       // The HTTP request object
-	ResponseWriter http.ResponseWriter // The writer to send HTTP responses
-	PathParams     map[string]string   // URL path parameters
-	queryValues    url.Values          // URL query parameter values
-	MatchedRoute   string              // The matched route pattern
-	RespData       []byte              // Response data to be written to the client
-	RespStatusCode int                 // HTTP response status code
-	templateEngine TemplateEngine      // Template engine for rendering HTML templates
-	UserValues     map[string]any      // Additional user-defined values to pass through the context
+	// Request is the original http.Request object. It represents the HTTP request
+	// received by the server and contains properties such as the URL, headers,
+	// query parameters, etc. Handlers can access this to read request data.
+	Request *http.Request
+
+	// ResponseWriter is an interface used to respond to an HTTP request.
+	// It is the writer that sends the HTTP response back to the client. Handlers use
+	// this to write the response headers and response body.
+	ResponseWriter http.ResponseWriter
+
+	// PathParams contains any URL path parameters matched by the routing mechanism.
+	// For example, in a route defined as "/users/:id", the "id" would be available
+	// in this map for the path "/users/123".
+	PathParams map[string]string
+
+	// queryValues are all the URL query parameter values extracted from the
+	// request URL. This uses the standard `url.Values` type which is essentially
+	// a map with string keys and a slice of strings as the value, since a single
+	// key can have multiple values.
+	queryValues url.Values
+
+	// MatchedRoute is the pattern of the route that matched the current request.
+	// For example, if the request is to "/users/view" and a "/users/:action" route
+	// matches it, this field will hold that pattern "/users/:action".
+	MatchedRoute string
+
+	// RespData is a buffer to hold the data that will be written to the HTTP response.
+	// This is used to accumulate the response body prior to writing to the
+	// ResponseWriter.
+	RespData []byte
+
+	// RespStatusCode is the HTTP status code that should be sent with the response.
+	// This is used to store the intended status code which will be written to the
+	// response during the final handling of the request.
+	RespStatusCode int
+
+	// templateEngine is the engine or library used for rendering HTML templates.
+	// If the response requires rendering a template, this field holds the instance
+	// or interface to the template engine that's used to do that rendering.
+	templateEngine TemplateEngine
+
+	// UserValues is a flexible storage area provided for the developer to store
+	// any additional values that might be needed throughout the life of the request.
+	// It is essentially a map that can hold values of any type, indexed by string keys.
+	UserValues map[string]any
+
+	// headerWritten is a flag indicating whether or not the HTTP headers have already
+	// been written to the response. This is used to ensure that headers and status code
+	// are not written more than once.
+	headerWritten bool
+}
+
+// writeHeader sends an HTTP response header with the provided status code
+// if the header has not been written yet. It ensures that the WriteHeader
+// method of the ResponseWriter is called only once during the lifecycle
+// of a single HTTP request.
+//
+// This method belongs to the Context structure and it handles the state of
+// the response header using an internal flag (headerWritten).
+//
+// Params:
+//
+//	statusCode int - The HTTP status code to be sent with the response header.
+func (c *Context) writeHeader(statusCode int) {
+	// Check if the header has already been written.
+	// The headerWritten field is a boolean and it indicates whether the
+	// HTTP status code and headers have already been sent to the client.
+	// This check is crucial to avoid writing the header more than once.
+	if !c.headerWritten {
+		// Use the ResponseWriter from the Context to write the HTTP status code.
+		// ResponseWriter.WriteHeader sends the HTTP response header with the
+		// status code provided. If called more than once, it would typically
+		// result in a runtime error, as the HTTP protocol allows for only one
+		// set of headers per response.
+		c.ResponseWriter.WriteHeader(statusCode)
+
+		// Set the headerWritten flag to true to indicate that the header
+		// has now been written for this request.
+		// This ensures that subsequent calls to writeHeader within the same
+		// request will not attempt to write the header again.
+		c.headerWritten = true
+	}
 }
 
 // Render processes a template and populates it with dynamic data provided by the 'data' parameter.
