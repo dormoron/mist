@@ -383,20 +383,7 @@ func (s *HTTPServer) ServeHTTP(writer http.ResponseWriter, request *http.Request
 		ResponseWriter: writer,           // The ResponseWriter to work with the HTTP response.
 		templateEngine: s.templateEngine, // The templating engine, if any, to render HTML views.
 	}
-	root := s.server // Start with the base server handler.
-	// Loop through all the server's middleware in reverse to construct the middleware chain.
-	for i := len(s.mils) - 1; i >= 0; i-- {
-		root = s.mils[i](root) // Wrap the current 'root' with the middleware function.
-	}
-	// Define a final Middleware to ensure that the response is flushed after handling the request.
-	var m Middleware = func(next HandleFunc) HandleFunc {
-		return func(ctx *Context) {
-			next(ctx)        // Execute the next handler in the chain.
-			s.flashResp(ctx) // Flush the response after handling the request.
-		}
-	}
-	root = m(root) // Wrap the final Middleware around the root handler.
-	root(ctx)      // Execute the request handling starting from the root of the middleware chain.
+	s.server(ctx)
 }
 
 // flashResp is a method on the HTTPServer struct that commits the HTTP response
@@ -438,46 +425,51 @@ func (s *HTTPServer) flashResp(ctx *Context) {
 	}
 }
 
-// server is a method of HTTPServer that processes an incoming HTTP request by searching for a matching route
-// and invoking the associated handler. If no matching route is found, or the found node doesn't have a handler,
-// it responds with a 404 Not Found status. This method marks the entry point for a request's handling logic
-// after passing through any configured middleware.
-//
-// Parameters:
-//   - ctx: A pointer to a Context that contains the HTTP request contextual details such as the request itself,
-//     ResponseWriter for writing back the response, and other metadata regarding the request.
-//
-// The server function performs the following actions:
-//
-//  1. Searches for a route matching the current request's method and URL path in the server's routing structure.
-//  2. If a match is found (ok is true), and the found node (info.n) has a non-nil handler function, then the Context
-//     is enriched with the path parameters extracted from the URL and the matched route info. The associated handler
-//     function is then called with the updated context.
-//  3. If there is no match for the route, or the node doesn't have a handler, the server responds with a 404 Not Found
-//     status by setting the appropriate status code and response data in the context, which will later be sent back to
-//     the client.
-//
-// This method ensures that a request is routed to the correct handler based on the defined routing rules.
-// If no appropriate handler is registered for the request, it ensures that the server responds with a proper
-// error message and status code.
+// server is a method that handles incoming HTTP requests by resolving the appropriate
+// route and executing the associated handler, along with any applicable middlewares.
 func (s *HTTPServer) server(ctx *Context) {
-	// Attempt to find a matching route in the server's routing structure based on the HTTP method and URL path.
-	info, ok := s.findRoute(ctx.Request.Method, ctx.Request.URL.Path)
+	// Find the route that matches the method and path of the request.
+	mi, ok := s.findRoute(ctx.Request.Method, ctx.Request.URL.Path)
 
-	// Check if a matching route is found and has a non-nil handler.
-	if !ok || info.n == nil || info.n.handler == nil {
-		// Prepare a Not Found (404) response if no matching route is available.
-		ctx.RespStatusCode = http.StatusNotFound // Set the status code to 404.
-		ctx.RespData = []byte("NOT FOUND")       // Set the response body to "NOT FOUND".
-		return                                   // Return immediately since no further action is needed.
+	// If a matching node is found, populate the context with the route-specific
+	// path parameters and the matched route.
+	if mi.n != nil {
+		ctx.PathParams = mi.pathParams
+		ctx.MatchedRoute = mi.n.route
 	}
 
-	// Populate the context with the path parameters and the matched route info from the findRoute method.
-	ctx.PathParams = info.pathParams // Store any dynamic parameters from the URL path.
-	ctx.MatchedRoute = info.n.route  // Store the exact matched route pattern.
+	// Define a root handle function that will attempt to execute the matched route's handler.
+	// If no match is found, or if the matched node does not have a handler, a 404 status code is set.
+	var root HandleFunc = func(ctx *Context) {
+		if !ok || mi.n == nil || mi.n.handler == nil {
+			ctx.RespStatusCode = 404 // Set status code to '404 Not Found' if route is not resolved.
+			return
+		}
+		// If a handler exists for the route, call it passing the context.
+		mi.n.handler(ctx)
+	}
 
-	// Call the handler associated with the found route, passing in the updated context.
-	info.n.handler(ctx)
+	// Execute all the applicable middlewares in reverse order.
+	// This is typically done to wrap the final handler with additional functionality.
+	for i := len(mi.mils) - 1; i >= 0; i-- {
+		root = mi.mils[i](root)
+	}
+
+	// Define a middleware that ensures the response is properly sent after
+	// the handler (and any other middlewares) have finished processing.
+	var m Middleware = func(next HandleFunc) HandleFunc {
+		return func(ctx *Context) {
+			next(ctx)        // Call the next middleware or final handler.
+			s.flashResp(ctx) // Ensure the response is fully written out and sent.
+		}
+	}
+
+	// Wrap the root handler with the flushing middleware.
+	root = m(root)
+
+	// Invoke the root function which represents the chain of middlewares
+	// ending with the route's handler.
+	root(ctx)
 }
 
 // Start initiates the HTTP server listening on the specified address. It sets up a TCP network listener on the
