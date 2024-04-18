@@ -14,7 +14,7 @@ Mist是一个使用Go语言编写的轻量级、高效的Web框架，它的设�
 安装Mist：
 
 ```bash
-go get -u github.com/dormoron/mist
+go get -u github.com/your_username/mist
 ```
 创建一个简单的服务器实例：
 ``` go
