@@ -14,14 +14,14 @@ Mist是一个使用Go语言编写的轻量级、高效的Web框架，它的设�
 安装Mist：
 
 ```bash
-go get -u github.com/your_username/mist
+go get -u github.com/dormoron/mist
 ```
 创建一个简单的服务器实例：
 ``` go
 package main
 
 import (
-    "github.com/your_username/mist"
+    "github.com/dormoron/mist"
     "net/http"
 )
 
