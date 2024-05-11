@@ -6,27 +6,6 @@ import (
 	"strconv"
 )
 
-// HandleFunc defines the function signature for an HTTP request handler specific to your web framework.
-//
-// This type represents a function that takes a pointer to a Context object as its argument and does
-// not return any value. The Context object typically encapsulates all the information about the current
-// HTTP request, including the request itself, response writer, path parameters, query parameters, and
-// any other metadata or utilities needed to process the request.
-//
-// Usage:
-// A HandleFunc is intended to be used as a callback for specific routes to handle incoming HTTP requests.
-// Each route will have an associated HandleFunc that will be executed when the route is matched.
-//
-// Example:
-//
-//	func HelloWorldHandler(ctx *Context) {
-//	  ctx.ResponseWriter.Write([]byte("Hello, World!"))
-//	}
-//
-//	// Registering the handler with a route:
-//	server.registerRoute("GET", "/hello", HelloWorldHandler)
-type HandleFunc func(ctx *Context) // Type signature for request handling functions within the framework
-
 // This line asserts that HTTPServer implements the Server interface at compile time.
 // If HTTPServer does not implement all the methods defined in the Server interface,
 // the program will not compile, and the compiler will provide an error message indicating
@@ -707,29 +686,4 @@ func (s *HTTPServer) CONNECT(path string, handleFunc HandleFunc) {
 // regarding further actions.
 func (s *HTTPServer) OPTIONS(path string, handleFunc HandleFunc) {
 	s.registerRoute(http.MethodOptions, path, handleFunc)
-}
-
-// TRACE registers a new route with an associated handler function for HTTP TRACE requests.
-// The HTTP TRACE method is used to echo back the received request so that a client can see what
-// (if any) changes or additions have been made by intermediate servers.
-//
-// Parameters:
-//   - path string: The endpoint on the server that will respond to the TRACE requests. This defines
-//     the path pattern that must be matched for the handler function to be invoked.
-//   - handleFunc: A function that handles the TRACE request. It should process the request
-//     and typically returns the same request message in the response body. This function has a
-//     *Context object allowing access to the request details and the ability to write the response.
-//
-// Example usage:
-//
-//	s.Trace("/echo", func(ctx *Context) {
-//	    // Handler logic that echoes the incoming request back to the client.
-//	})
-//
-// Note:
-// Registering this route specifically listens for HTTP TRACE requests by using `http.MethodTrace`.
-// This is helpful for debugging purposes where the client needs to understand what headers and
-// body are being received by the server after any possible alterations by intermediate devices.
-func (s *HTTPServer) TRACE(path string, handleFunc HandleFunc) {
-	s.registerRoute(http.MethodTrace, path, handleFunc)
 }
