@@ -87,39 +87,40 @@ type Propagator struct {
 	cookieOption func(cookie *http.Cookie)
 }
 
-// InitPropagator creates and initializes a new instance of the Propagator struct with a default
-// configuration. It sets a common cookie name, 'sessionId', which is typically used for
-// identifying user sessions across HTTP requests. The cookieOption is also initialized, however,
-// it is provided as an empty function which effectively means no additional cookie configurations
-// are applied at initialization time.
+// InitPropagator initializes a new instance of a Propagator object with default settings.
+// The function can take a variable number of PropagatorOptions, which are functional options that
+// modify the Propagator's configuration. If no options are passed, the Propagator will be
+// initialized with a default cookie name 'sessionId' and an empty cookieOption, which by default
+// doesn't modify the HTTP cookie.
 //
-// This allows for a Propagator to be readily created and used with its basic necessary component,
-// the cookie name, already set. Additional cookie attributes can later be defined by providing
-// a custom function to cookieOption.
+// Parameters:
+//   - opts ...PropagatorOptions: A variadic parameter that allows passing zero or more functions
+//     that conform to the PropagatorOptions type. Each PropagatorOptions is a function that takes
+//     a *Propagator and returns nothing, intended to modify the Propagator's configuration.
 //
 // Returns:
-// *Propagator: This is a pointer to the newly created Propagator instance, ready for use in handling
-//
-//	cookies with the pre-set cookie name.
-func InitPropagator() *Propagator {
-	// Create a new Propagator instance with specific default values.
-	return &Propagator{
-		// Set the cookieName field to "sessionId", a conventional name used for
-		// a cookie that stores session identifiers.
+//   - *Propagator: A pointer to the newly initialized Propagator instance with its configuration
+//     set according to the passed options.
+func InitPropagator(opts ...PropagatorOptions) *Propagator {
+	// Initialize a new Propagator with the default configuration.
+	// Default cookieName is set to 'sessionId'.
+	// Default cookieOption is an empty function that accepts an *http.Cookie but doesn't modify it.
+	res := &Propagator{
 		cookieName: "sessionId",
-
-		// Initialize cookieOption with an empty anonymous function. At this point,
-		// it doesn't modify the http.Cookie object, but it can be replaced with a
-		// function that sets the desired cookie attributes.
-		// For example, one might later define and assign a function that sets the
-		// Secure flag or modifies the cookie's MaxAge attribute.
 		cookieOption: func(cookie *http.Cookie) {
-			// This anonymous function is intended to configure a http.Cookie instance.
-			// As it's empty, no configurations are applied by default. This can be changed
-			// by providing a function that sets the http.Cookie's fields accordingly,
-			// such as Secure, MaxAge, Domain, Path, etc.
+			// This is an intentionally empty function, which serves as a placeholder,
+			// making it possible for the user to specify custom cookie options later.
 		},
 	}
+
+	// Iterate over each passed option in the 'opts' variadic parameter.
+	// Each option is a function that modifies the 'res' (the Propagator instance) in some way.
+	for _, opt := range opts {
+		opt(res) // Apply the option function to the Propagator instance.
+	}
+
+	// Return the pointer to the Propagator instance with its now fully configured state.
+	return res
 }
 
 // WithCookieName is a functional option helper that creates a PropagatorOptions function,
