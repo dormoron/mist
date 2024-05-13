@@ -78,7 +78,7 @@ func (m *MiddlewareBuilder) AddCode(status int, data []byte) *MiddlewareBuilder 
 //	        AddCode(404, []byte("Not Found")).
 //	        AddCode(500, []byte("Internal Server Error"))
 //	router.Use(mb.Build()) // Applying the middleware to the router
-func (m MiddlewareBuilder) Build() mist.Middleware {
+func (m *MiddlewareBuilder) Build() mist.Middleware {
 	// The returned function is a closure that captures the current state of the MiddlewareBuilder.
 	return func(next mist.HandleFunc) mist.HandleFunc {
 		// The middleware function expects the next handler in the chain to be called with context.

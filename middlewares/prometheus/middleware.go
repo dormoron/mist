@@ -21,7 +21,7 @@ type MiddlewareBuilder struct {
 // Build constructs and returns a new prometheus monitoring middleware for use within the mist framework.
 // The MiddlewareBuilder receiver attaches the newly built prometheus metric collection functionality to mist Middleware.
 // The metrics collected are specifically SummaryVec which help in observing the request latency distribution.
-func (m MiddlewareBuilder) Build() mist.Middleware {
+func (m *MiddlewareBuilder) Build() mist.Middleware {
 	// A SummaryVec is created with the necessary prometheus options including the provided namespace, subsystem,
 	// and the name from the MiddlewareBuilder fields. Additionally, the helper message and specific objectives for quantiles are set.
 	vector := prometheus.NewSummaryVec(prometheus.SummaryOpts{

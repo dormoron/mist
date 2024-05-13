@@ -59,7 +59,7 @@ type MiddlewareBuilder struct {
 // Usage:
 //   - mw := builder.Build()
 //     After calling Build on a MiddlewareBuilder instance, the resulting middleware can be applied to an HTTP route.
-func (m MiddlewareBuilder) Build() mist.Middleware {
+func (m *MiddlewareBuilder) Build() mist.Middleware {
 	// Construct and return the middleware function.
 	return func(next mist.HandleFunc) mist.HandleFunc {
 		// Return a new handler function encapsulating the middleware logic.

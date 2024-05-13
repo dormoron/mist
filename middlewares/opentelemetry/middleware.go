@@ -23,7 +23,7 @@ type MiddlewareBuilder struct {
 // This middleware is responsible for starting a new span for each incoming HTTP request,
 // sets various attributes related to the request and ensures that the span is ended
 // properly after the request is handled.
-func (m MiddlewareBuilder) Build() mist.Middleware {
+func (m *MiddlewareBuilder) Build() mist.Middleware {
 	// Check if the Tracer attribute of MiddlewareBuilder has been set.
 	// If not, initialize it with a default tracer from the OpenTelemetry global TracerProvider
 	// using the specified instrumentation name.

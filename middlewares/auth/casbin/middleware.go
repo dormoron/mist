@@ -24,10 +24,10 @@ type MiddlewareBuilder struct {
 	watcher     *fsnotify.Watcher // A file system watcher to detect changes in the policy file.
 }
 
-// NewMiddlewareBuilder is a constructor function for MiddlewareBuilder.
+// InitMiddlewareBuilder is a constructor function for MiddlewareBuilder.
 // It initializes the Casbin enforcer, file system watcher, and sets up the policy file watching.
 // It returns a pointer to the created MiddlewareBuilder and any error encountered during the initialization process.
-func NewMiddlewareBuilder(modelFile, policyFile string, subResolver SubResolver) (*MiddlewareBuilder, error) {
+func InitMiddlewareBuilder(modelFile, policyFile string, subResolver SubResolver) (*MiddlewareBuilder, error) {
 	// Create a new Casbin enforcer using the provided model and policy file paths.
 	enforcer, err := casbin.NewEnforcer(modelFile, policyFile)
 	if err != nil {

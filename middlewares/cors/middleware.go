@@ -8,17 +8,15 @@ import (
 // MiddlewareBuilder is a struct that serves as a configuration holder for creating middleware, specifically tailored for managing
 // Cross-Origin Resource Sharing (CORS) settings in HTTP handlers or servers. Middleware created using this builder can be used
 // to dictate which origins are allowed to access resources on the server.
-
 // Fields:
-// - AllowOrigin: A string that specifies the origin(s) that are permitted to access the resources. This can be a specific URI,
-//                or "*" to allow any origin. It translates directly to the 'Access-Control-Allow-Origin' header in CORS
-//                implementations. Correct configuration ensures that resources are accessible only to certain origins, thus
-//                following the security practices pertaining to CORS.
-
+//   - AllowOrigin: A string that specifies the origin(s) that are permitted to access the resources. This can be a specific URI,
+//     or "*" to allow any origin. It translates directly to the 'Access-Control-Allow-Origin' header in CORS
+//     implementations. Correct configuration ensures that resources are accessible only to certain origins, thus
+//     following the security practices pertaining to CORS.
+//
 // Usage of the AllowOrigin field aligns with web security principles inhibiting resources from being accessed by unauthorized origins.
 // Proper setting of this field is crucial to safeguard against Cross-Site Scripting (XSS) and Cross-Site Request Forgery (CSRF)
 // attacks by ensuring that only designated origins can make cross-origin HTTP requests to the server.
-
 // Usage Example:
 // To create middleware with this builder that will only allow requests from 'https://example.com', one would initialize a
 // MiddlewareBuilder instance like this:
@@ -27,7 +25,6 @@ import (
 //
 // The builder can then be used to create middleware for an HTTP server that will add the 'Access-Control-Allow-Origin' header
 // with the value "https://example.com" to each response, thus allowing cross-origin requests exclusively from 'https://example.com'.
-
 type MiddlewareBuilder struct {
 	AllowOrigin string // URI(s) that are permitted to access the server
 }
@@ -56,7 +53,7 @@ type MiddlewareBuilder struct {
 //     Preflight requests do not require further handling by other middleware or handlers.
 //
 // 5. For all other request methods, it calls the next handler in the chain.
-func (m MiddlewareBuilder) Build() mist.Middleware {
+func (m *MiddlewareBuilder) Build() mist.Middleware {
 	// Define and return the middleware function.
 	return func(next mist.HandleFunc) mist.HandleFunc {
 		// Define the function that will be executed as middleware.
