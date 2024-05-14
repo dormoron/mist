@@ -18,6 +18,15 @@ type MiddlewareBuilder struct {
 	Help      string // Help is a descriptive string that provides insights into what the middleware does or is used for. It may be exposed in monitoring tools or documentation.
 }
 
+func InitMiddleWare(namespace string, subsystem string, name string, help string) *MiddlewareBuilder {
+	return &MiddlewareBuilder{
+		Namespace: namespace,
+		Subsystem: subsystem,
+		Name:      name,
+		Help:      help,
+	}
+}
+
 // Build constructs and returns a new prometheus monitoring middleware for use within the mist framework.
 // The MiddlewareBuilder receiver attaches the newly built prometheus metric collection functionality to mist Middleware.
 // The metrics collected are specifically SummaryVec which help in observing the request latency distribution.

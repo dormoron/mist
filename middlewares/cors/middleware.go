@@ -5,8 +5,27 @@ import (
 	"net/http"
 )
 
+type MiddlewareOptions func(builder *MiddlewareBuilder)
+
 type MiddlewareBuilder struct {
 	AllowOrigin string // URI(s) that are permitted to access the server
+}
+
+func InitMiddlewareBuilder(opts ...MiddlewareOptions) *MiddlewareBuilder {
+	builder := &MiddlewareBuilder{
+		AllowOrigin: "",
+	}
+	// Iterate over the provided MiddlewareOptions functions and apply them to the builder.
+	for _, opt := range opts {
+		opt(builder)
+	}
+	return builder
+}
+
+func WithAllowOrigin(allowOrigin string) MiddlewareOptions {
+	return func(builder *MiddlewareBuilder) {
+		builder.AllowOrigin = allowOrigin
+	}
 }
 
 func (m *MiddlewareBuilder) Build() mist.Middleware {

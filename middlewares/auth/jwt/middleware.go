@@ -17,7 +17,8 @@ import (
 type MiddlewareOptions func(builder *MiddlewareBuilder)
 
 // MiddlewareBuilder is a struct that holds configuration for creating
-// a JWT (JSON Web Token) middleware.
+//
+//	JWT (JSON Web Token) middleware.
 type MiddlewareBuilder struct {
 	StatusCode int                                 // StatusCode is the HTTP status code to return on error
 	ErrMsg     string                              // ErrMsg is the error message to return to the client on failure

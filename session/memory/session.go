@@ -52,7 +52,7 @@ type Store struct {
 //     being deleted automatically.
 //
 // Returns:
-//   - *Store: A pointer to a newly created Store instance, which holds the sessions cache and
+//   - *Store: A pointer to a newly created Store instance, which holds the session cache and
 //     the expiration policy for session data.
 //
 // Example:
@@ -68,7 +68,7 @@ func InitStore(expiration time.Duration) *Store {
 		// should check for expired items to remove.
 		sessions: cache.New(expiration, time.Second),
 
-		// expiration field is set to the duration passed into the function, ensuring all
+		// the expiration field is set to the duration passed into the function, ensuring all
 		// sessions adhere to this expiration policy.
 		expiration: expiration,
 	}

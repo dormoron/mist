@@ -1,6 +1,10 @@
 package recovery
 
-import "github.com/dormoron/mist"
+import (
+	"fmt"
+	"github.com/dormoron/mist"
+	"time"
+)
 
 // MiddlewareBuilder is a struct that encapsulates configurations for building middleware.
 // It is designed to be used for creating middleware that can handle errors, log requests,
@@ -49,6 +53,20 @@ type MiddlewareBuilder struct {
 	LogFunc func(ctx *mist.Context, err any)
 }
 
+func InitMiddlewareBuilder(statusCode int, errMsg []byte) *MiddlewareBuilder {
+	return &MiddlewareBuilder{
+		StatusCode: statusCode,
+		ErrMsg:     errMsg,
+		LogFunc:    defaultLogFunc,
+	}
+}
+
+// defaultLogFunc is the default logging function used by the middleware.
+// It logs a message with a timestamp to standard output.
+func defaultLogFunc(ctx *mist.Context, err any) {
+	fmt.Printf("%s - %e\n", time.Now().Format(time.RFC3339), err)
+}
+
 // Build creates and returns a mist.Middleware based on the configurations provided in the MiddlewareBuilder.
 // The returned middleware is responsible for recovering from panics that may occur in the HTTP request
 // handling cycle, logging the error, and returning a specified error response to the client.
@@ -64,7 +82,7 @@ func (m *MiddlewareBuilder) Build() mist.Middleware {
 	return func(next mist.HandleFunc) mist.HandleFunc {
 		// Return a new handler function encapsulating the middleware logic.
 		return func(ctx *mist.Context) {
-			// Use defer and recover to catch any panics that occur during the HTTP handling cycle.
+			// Use deferring and recover to catch any panics that occur during the HTTP handling cycle.
 			defer func() {
 				if err := recover(); err != nil {
 					// In case of panic, set the context response data and status code to the ones specified in MiddlewareBuilder.

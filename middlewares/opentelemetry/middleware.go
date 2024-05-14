@@ -10,6 +10,8 @@ import (
 
 const instrumentationName = "github.com/dormoron/mist/middleware/opentelemetry"
 
+type MiddlewareOptions func(builder *MiddlewareBuilder)
+
 // MiddlewareBuilder is a struct that aids in constructing middleware with tracing capabilities.
 // It holds a reference to a Tracer instance which will be used to trace the flow of HTTP requests.
 type MiddlewareBuilder struct {
@@ -18,18 +20,29 @@ type MiddlewareBuilder struct {
 	// application's request flows and performance.
 }
 
+func InitMiddlewareBuilder(opts ...MiddlewareOptions) *MiddlewareBuilder {
+	builder := &MiddlewareBuilder{
+		Tracer: otel.GetTracerProvider().Tracer(instrumentationName),
+	}
+
+	for _, opt := range opts {
+		opt(builder)
+	}
+	return builder
+}
+
+func WithTracer(tracer trace.Tracer) MiddlewareOptions {
+	return func(builder *MiddlewareBuilder) {
+		builder.Tracer = tracer
+	}
+}
+
 // Build is a method attached to the MiddlewareBuilder struct. This method initializes
 // and returns a Tracing middleware that can be used in the mist HTTP framework.
 // This middleware is responsible for starting a new span for each incoming HTTP request,
 // sets various attributes related to the request and ensures that the span is ended
 // properly after the request is handled.
 func (m *MiddlewareBuilder) Build() mist.Middleware {
-	// Check if the Tracer attribute of MiddlewareBuilder has been set.
-	// If not, initialize it with a default tracer from the OpenTelemetry global TracerProvider
-	// using the specified instrumentation name.
-	if m.Tracer == nil {
-		m.Tracer = otel.GetTracerProvider().Tracer(instrumentationName)
-	}
 
 	// Return an anonymous function matching the mist middleware signature.
 	return func(next mist.HandleFunc) mist.HandleFunc {

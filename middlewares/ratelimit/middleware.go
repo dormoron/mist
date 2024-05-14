@@ -1,4 +1,4 @@
-package ratelimiter
+package ratelimit
 
 import (
 	"github.com/dormoron/mist"
@@ -24,16 +24,16 @@ type MiddlewareOptions func(builder *MiddlewareBuilder)
 
 // MiddlewareBuilder is a struct type that encapsulates the logic for
 // building rate limiting middleware which can be used in different contexts,
-// such as a HTTP Server to control the rate of incoming requests.
+// such as an HTTP Server to control the rate of incoming requests.
 // Fields:
 //
-//   - limiter:  This is an implementation of the Limiter interface, it controls how to check
+//   - limiter: This is an implementation of the Limiter interface, it controls how to check
 //     and handle rate limits (e.g., using a sliding window algorithm or token bucket strategy).
 //
-//   - keyFn:    This is a function that generates a unique key for each request, based on the provided mist.Context.
-//     For example, in a HTTP context this may generate keys based on a client IP address or authenticated user ID.
+//   - keyFn: This is a function that generates a unique key for each request, based on the provided mist.Context.
+//     For example, in an HTTP context this may generate keys based on a client IP address or authenticated user ID.
 //
-//   - logFn:    This function is used for logging purposes and can be customized as per your requirements.
+//   - logFn: This function is used for logging purposes and can be customized as per your requirements.
 //     It receives a string for log level, a string for log message, and a variadic parameter for any additional arguments.
 //
 //   - retryAfterSec: Integer value specifying the time in seconds a client should wait before retrying
@@ -172,13 +172,13 @@ func (b *MiddlewareBuilder) Build() mist.Middleware {
 			limited, err := b.limit(ctx) // check if the request rate limit has been exceeded
 			if err != nil {              // If there is an error in limiting function, log it and halt request handling by returning an error status code.
 				b.logFn("error", "The current limiting detection error: ", err)
-				ctx.RespStatusCode = http.StatusInternalServerError
+				ctx.AbortWithStatus(http.StatusInternalServerError)
 				http.Error(ctx.ResponseWriter, "Internal server error", http.StatusInternalServerError)
 				return
 			}
 			if limited { // If the rate limit is exceeded, log a warning, set the response headers accordingly and halt the request handling.
 				b.logFn("warn", "The request is blocked")
-				ctx.RespStatusCode = http.StatusTooManyRequests
+				ctx.AbortWithStatus(http.StatusTooManyRequests)
 				ctx.ResponseWriter.Header().Set("Retry-After", strconv.Itoa(b.retryAfterSec))
 				http.Error(ctx.ResponseWriter, "Too many requests, please try again later", ctx.RespStatusCode)
 				return
@@ -201,9 +201,9 @@ func (b *MiddlewareBuilder) Build() mist.Middleware {
 //  1. Generates a key using the key function defined in the MiddlewareBuilder.
 //  2. If the generated key is an empty string, logs an error message (indicating a potential misconfiguration
 //     or problem in the key generation logic) and returns no limitation (false) and no error (nil).
-//  3. Otherwise, uses the rate limiter to determine if the request associated with the key should be limited,
+//  3. Otherwise, use the rate limiter to determine if the request associated with the key should be limited,
 //     and returns the result.
-func (b *MiddlewareBuilder) limit(ctx *mist.Context) (bool, error) {
+func (b MiddlewareBuilder) limit(ctx *mist.Context) (bool, error) {
 	key := b.keyFn(ctx) // Generate a key for the request using the key function provided in the MiddlewareBuilder.
 	if key == "" {      // Check if the key is an empty string, which indicates a problem in key generation.
 		b.logFn("error", "Failed to generate a key") // Log an error message indicating key generation failure.
