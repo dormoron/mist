@@ -3,9 +3,11 @@ package mist
 import (
 	"encoding/json"
 	"github.com/dormoron/mist/internal/errs"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 // Context is a custom type designed to carry the state and data needed to process
@@ -163,6 +165,29 @@ func (c *Context) Render(templateName string, data any) error {
 // - If you need to set multiple cookies, you would call this method multiple times, passing in each cookie as a separate 'http.Cookie' object.
 func (c *Context) SetCookie(ck *http.Cookie) {
 	http.SetCookie(c.ResponseWriter, ck)
+}
+
+func (c *Context) RemoteIP() string {
+	ip, _, err := net.SplitHostPort(strings.TrimSpace(c.Request.RemoteAddr))
+	if err != nil {
+		return ""
+	}
+	return ip
+}
+
+func (c *Context) ClientIP() string {
+	xForwardedFor := c.Request.Header.Get("X-Forwarded-For")
+	if xForwardedFor != "" {
+		ip := strings.TrimSpace(strings.Split(xForwardedFor, ",")[0])
+		if ip != "" {
+			return ip
+		}
+	}
+	xRealIP := c.Request.Header.Get("X-Real-IP")
+	if xRealIP != "" {
+		return strings.TrimSpace(xRealIP)
+	}
+	return c.RemoteIP()
 }
 
 // RespJSONOK sends a JSON response with an HTTP status code 200 (OK) to the client.

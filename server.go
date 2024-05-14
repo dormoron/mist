@@ -93,51 +93,46 @@ type HTTPServerOption func(server *HTTPServer) // Functional option for configur
 // rendering. By organizing these functionalities into a single struct, it provides
 // a cohesive framework for developers to manage the server's behavior and configure
 // its various components efficiently.
-
 // Embedded and Fields:
-//   router: The router is an embedded field representing the server's routing
-//           mechanism. As an embedded field, it provides the HTTPServer direct
-//           access to the routing methods. The router is responsible for
-//           mapping incoming requests to the appropriate handler functions
-//           based on URL paths and HTTP methods.
-
-//   mils ([]Middleware): The mils slice holds the middleware functions that
-//                        the server will execute sequentially for each request.
-//                        Middleware functions are used to intercept and manipulate
-//                        requests and responses, allowing for tasks such as
-//                        authentication, logging, and session management to be
-//                        handled in a modular fashion.
-
-//   log (Logger): The log field is an instance of the Logger interface. This
-//                 abstraction allows the server to utilize various logging
-//                 implementations, providing the flexibility to log server events,
-//                 errors, and other informational messages in a standardized manner.
-
-//   templateEngine (TemplateEngine): The templateEngine field is an interface
-//                                    that abstracts away the specifics of how
-//                                    HTML templates are processed and rendered.
-//                                    It allows the server to execute templates
-//                                    and serve dynamic content, making it easy
-//                                    to integrate different template processing
-//                                    systems according to the application's needs.
-
+//
+//	router: The router is an embedded field representing the server's routing
+//	        mechanism. As an embedded field, it provides the HTTPServer direct
+//	        access to the routing methods. The router is responsible for
+//	        mapping incoming requests to the appropriate handler functions
+//	        based on URL paths and HTTP methods.
+//	mils ([]Middleware): The mils slice holds the middleware functions that
+//	                     the server will execute sequentially for each request.
+//	                     Middleware functions are used to intercept and manipulate
+//	                     requests and responses, allowing for tasks such as
+//	                     authentication, logging, and session management to be
+//	                     handled in a modular fashion.
+//	log (Logger): The log field is an instance of the Logger interface. This
+//	              abstraction allows the server to utilize various logging
+//	              implementations, providing the flexibility to log server events,
+//	              errors, and other informational messages in a standardized manner.
+//	templateEngine (TemplateEngine): The templateEngine field is an interface
+//	                                 that abstracts away the specifics of how
+//	                                 HTML templates are processed and rendered.
+//	                                 It allows the server to execute templates
+//	                                 and serve dynamic content, making it easy
+//	                                 to integrate different template processing
+//	                                 systems according to the application's needs.
+//
 // Usage:
 // When constructing an HTTPServer, developers must initialize each component
 // before starting the server:
-
-// - The router must be set up with routes that map URLs to handler functions.
-// - Middleware functions must be added to the mils slice in the necessary order
-//   as they will be executed sequentially on each request.
-// - A Logger implementation must be provided to the log field to record server
-//   operations, errors, and other events.
-// - If the server will serve dynamic HTML content, a TemplateEngine that
-//   complies with the templateEngine interface must be assigned, enabling the
-//   server to render HTML templates with dynamic data.
-
+//   - The router must be set up with routes that map URLs to handler functions.
+//   - Middleware functions must be added to the mils slice in the necessary order
+//     as they will be executed sequentially on each request.
+//   - A Logger implementation must be provided to the log field to record server
+//     operations, errors, and other events.
+//   - If the server will serve dynamic HTML content, a TemplateEngine that
+//     complies with the templateEngine interface must be assigned, enabling the
+//     server to render HTML templates with dynamic data.
+//
 // By ensuring all these components are properly initialized, the HTTPServer
 // can efficiently manage inbound requests, apply necessary pre-processing,
 // handle routing, execute business logic, and generate dynamic responses.
-
 type HTTPServer struct {
 	router                        // Embedded routing management. Provides direct access to routing methods.
 	mils           []Middleware   // Middleware stack. A slice of Middleware functions to process requests.

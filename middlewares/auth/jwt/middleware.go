@@ -5,6 +5,7 @@ import (
 	"github.com/dormoron/mist"
 	"github.com/golang-jwt/jwt"
 	"log"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -160,6 +161,12 @@ func (m *MiddlewareBuilder) Build() mist.Middleware {
 		return func(ctx *mist.Context) {
 			// Start off the token validation process by logging the initiation.
 			m.LogFunc(ctx, "Starting the auth token validation")
+			// If the MiddlewareBuilder was set to enforce HTTPS, and the request does not indicate a secure connection,
+			// return a '401 Unauthorized' response.
+			if m.IsHTTPS && ctx.Request.TLS == nil {
+				m.sendError(ctx, http.StatusUnauthorized)
+				return
+			}
 			// Check if the requested path is one of the paths that should skip the JWT check.
 			for _, pattern := range m.Paths {
 				if pattern.MatchString(ctx.Request.URL.Path) {

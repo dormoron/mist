@@ -75,7 +75,7 @@ func (b *MiddlewareBuilder) LogFunc(fn func(log string)) *MiddlewareBuilder {
 	return b
 }
 
-// InitBuilder initializes a new instance of the MiddlewareBuilder struct with default
+// InitMiddleware initializes a new instance of the MiddlewareBuilder struct with default
 // configuration settings. It sets up a standard logging function that will log access
 // events using the Go standard library's log package. The returned MiddlewareBuilder
 // can be further configured with additional options before being used to create
@@ -87,7 +87,7 @@ func (b *MiddlewareBuilder) LogFunc(fn func(log string)) *MiddlewareBuilder {
 // Usage:
 //   - builder := InitBuilder()
 //     This will create a new MiddlewareBuilder with a default log function.
-func InitBuilder() *MiddlewareBuilder {
+func InitMiddleware() *MiddlewareBuilder {
 	// Create a new MiddlewareBuilder instance with default configurations.
 	return &MiddlewareBuilder{
 		// Set the logFunc field to a default function that uses the log package's Println method.
