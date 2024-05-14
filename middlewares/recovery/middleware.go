@@ -61,6 +61,11 @@ func InitMiddlewareBuilder(statusCode int, errMsg []byte) *MiddlewareBuilder {
 	}
 }
 
+func (m *MiddlewareBuilder) SetLogFunc(logFunc func(ctx *mist.Context, err any)) *MiddlewareBuilder {
+	m.LogFunc = logFunc
+	return m
+}
+
 // defaultLogFunc is the default logging function used by the middleware.
 // It logs a message with a timestamp to standard output.
 func defaultLogFunc(ctx *mist.Context, err any) {

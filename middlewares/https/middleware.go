@@ -76,6 +76,12 @@ type MiddlewareBuilder struct {
 	Config RedirectConfig
 }
 
+func InitMiddlewareBuilder(config RedirectConfig) *MiddlewareBuilder {
+	return &MiddlewareBuilder{
+		Config: config,
+	}
+}
+
 // Build is a method of the MiddlewareBuilder struct. It constructs a new middleware function that
 // will be composed into the request handling pipeline of an HTTP server. This middleware will enforce
 // the redirection policies and security headers as defined in the MiddlewareBuilder's RedirectConfig.
