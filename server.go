@@ -413,10 +413,10 @@ func (s *HTTPServer) server(ctx *Context) {
 	}
 
 	// Define a root handle function that will attempt to execute the matched route's handler.
-	// If no match is found, or if the matched node does not have a handler, a 404 status code is set.
+	// If no match is found, or if the matched node does not have a handler, a 404-status code is set.
 	var root HandleFunc = func(ctx *Context) {
 		if !ok || mi.n == nil || mi.n.handler == nil {
-			ctx.RespStatusCode = 404 // Set status code to '404 Not Found' if route is not resolved.
+			ctx.RespStatusCode = 404 // Set status code to '404 Not Found' if the route is not resolved.
 			return
 		}
 		// If a handler exists for the route, call it passing the context.
@@ -433,8 +433,23 @@ func (s *HTTPServer) server(ctx *Context) {
 	// the handler (and any other middlewares) have finished processing.
 	var m Middleware = func(next HandleFunc) HandleFunc {
 		return func(ctx *Context) {
-			next(ctx)        // Call the next middleware or final handler.
-			s.flashResp(ctx) // Ensure the response is fully written out and sent.
+			if ctx.Aborted {
+				// If the request has been aborted, immediately flush the response
+				// and do not call any further middlewares or handlers.
+				s.flashResp(ctx)
+				return
+			}
+
+			next(ctx) // Call the next middleware or final handler.
+
+			if ctx.Aborted {
+				// After executing the next middleware or final handler, again check if
+				// the request has been aborted. If so, flush the response immediately.
+				s.flashResp(ctx)
+				return
+			}
+
+			s.flashResp(ctx)
 		}
 	}
 

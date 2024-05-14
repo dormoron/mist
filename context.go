@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Context is a custom type designed to carry the state and data needed to process
@@ -29,6 +31,10 @@ type Context struct {
 	// For example, in a route defined as "/users/:id", the "id" would be available
 	// in this map for the path "/users/123".
 	PathParams map[string]string
+
+	Keys map[string]any
+
+	mutex sync.RWMutex
 
 	// queryValues are all the URL query parameter values extracted from the
 	// request URL. This uses the standard `url.Values` type which is essentially
@@ -65,6 +71,8 @@ type Context struct {
 	// been written to the response. This is used to ensure that headers and status code
 	// are not written more than once.
 	headerWritten bool
+
+	Aborted bool
 }
 
 // writeHeader sends an HTTP response header with the provided status code
@@ -79,6 +87,9 @@ type Context struct {
 //
 //	statusCode int - The HTTP status code to be sent with the response header.
 func (c *Context) writeHeader(statusCode int) {
+	if c.Aborted {
+		return
+	}
 	// Check if the header has already been written.
 	// The headerWritten field is a boolean and it indicates whether the
 	// HTTP status code and headers have already been sent to the client.
@@ -97,6 +108,13 @@ func (c *Context) writeHeader(statusCode int) {
 		// request will not attempt to write the header again.
 		c.headerWritten = true
 	}
+}
+func (c *Context) AbortWithStatus(code int) {
+	if c.Aborted {
+		return
+	}
+	c.writeHeader(code)
+	c.Aborted = true
 }
 
 // Render processes a template and populates it with dynamic data provided by the 'data' parameter.
@@ -537,7 +555,7 @@ func (c *Context) QueryValue(key string) StringValue {
 //   - The method assumes that 'c.PathParams' has already been populated with the correct path parameters before calling 'PathValue'.
 //     In a typical web server implementation, this population is done during the routing process, before the request handler is invoked.
 //   - The 'PathParams' may hold multiple path parameters depending on the URL pattern; 'PathValue' method is responsible for extracting a single parameter by key.
-//   - If the same key would be present multiple times in 'c.PathParams', this method would return the first instance of the value associated with the key.
+//   - If the same key was present multiple times in 'c.PathParams', this method would return the first instance of the value associated with the key.
 //
 // Considerations:
 //   - When working with frameworks or routers that facilitate path parameter extraction, ensure the router is correctly configured to parse and store the path parameters
@@ -551,6 +569,130 @@ func (c *Context) PathValue(key string) StringValue {
 		}
 	}
 	return StringValue{val: val}
+}
+
+func (c *Context) Header(key, value string) {
+	if value == "" {
+		c.ResponseWriter.Header().Del(key)
+		return
+	}
+	c.ResponseWriter.Header().Set(key, value)
+}
+
+func (c *Context) Set(key string, value any) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if c.Keys == nil {
+		c.Keys = make(map[string]any)
+	}
+
+	c.Keys[key] = value
+}
+
+func (c *Context) Get(key string) (value any, exists bool) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	value, exists = c.Keys[key]
+	return
+}
+
+// MustGet returns the value for the given key if it exists, otherwise it panics.
+func (c *Context) MustGet(key string) any {
+	if value, exists := c.Get(key); exists {
+		return value
+	}
+	panic("Key \"" + key + "\" does not exist")
+}
+
+func (c *Context) GetString(key string) (s string) {
+	if val, ok := c.Get(key); ok && val != nil {
+		s, _ = val.(string)
+	}
+	return
+}
+
+func (c *Context) GetBool(key string) (b bool) {
+	if val, ok := c.Get(key); ok && val != nil {
+		b, _ = val.(bool)
+	}
+	return
+}
+
+func (c *Context) GetInt(key string) (i int) {
+	if val, ok := c.Get(key); ok && val != nil {
+		i, _ = val.(int)
+	}
+	return
+}
+
+func (c *Context) GetInt64(key string) (i64 int64) {
+	if val, ok := c.Get(key); ok && val != nil {
+		i64, _ = val.(int64)
+	}
+	return
+}
+
+func (c *Context) GetUint(key string) (ui uint) {
+	if val, ok := c.Get(key); ok && val != nil {
+		ui, _ = val.(uint)
+	}
+	return
+}
+
+func (c *Context) GetUint64(key string) (ui64 uint64) {
+	if val, ok := c.Get(key); ok && val != nil {
+		ui64, _ = val.(uint64)
+	}
+	return
+}
+
+func (c *Context) GetFloat64(key string) (f64 float64) {
+	if val, ok := c.Get(key); ok && val != nil {
+		f64, _ = val.(float64)
+	}
+	return
+}
+
+func (c *Context) GetTime(key string) (t time.Time) {
+	if val, ok := c.Get(key); ok && val != nil {
+		t, _ = val.(time.Time)
+	}
+	return
+}
+
+func (c *Context) GetDuration(key string) (d time.Duration) {
+	if val, ok := c.Get(key); ok && val != nil {
+		d, _ = val.(time.Duration)
+	}
+	return
+}
+
+func (c *Context) GetStringSlice(key string) (ss []string) {
+	if val, ok := c.Get(key); ok && val != nil {
+		ss, _ = val.([]string)
+	}
+	return
+}
+
+func (c *Context) GetStringMap(key string) (sm map[string]any) {
+	if val, ok := c.Get(key); ok && val != nil {
+		sm, _ = val.(map[string]any)
+	}
+	return
+}
+
+func (c *Context) GetStringMapString(key string) (sms map[string]string) {
+	if val, ok := c.Get(key); ok && val != nil {
+		sms, _ = val.(map[string]string)
+	}
+	return
+}
+
+func (c *Context) GetStringMapStringSlice(key string) (smss map[string][]string) {
+	if val, ok := c.Get(key); ok && val != nil {
+		smss, _ = val.(map[string][]string)
+	}
+	return
 }
 
 // StringValue is a structure designed to encapsulate a string value and any associated error that may arise during the retrieval of the value.
