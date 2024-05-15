@@ -76,9 +76,15 @@ type MiddlewareBuilder struct {
 	Config RedirectConfig
 }
 
+// InitMiddlewareBuilder initializes a new instance of MiddlewareBuilder with the provided configuration.
+// The RedirectConfig contains the parameters that configure how redirects should be handled.
+// Parameters:
+// - config: an instance of RedirectConfig, which includes the various parameters necessary to configure the MiddlewareBuilder.
+// Returns:
+// - a pointer to the newly created MiddlewareBuilder instance.
 func InitMiddlewareBuilder(config RedirectConfig) *MiddlewareBuilder {
 	return &MiddlewareBuilder{
-		Config: config,
+		Config: config, // Set the Config field to the provided configuration.
 	}
 }
 

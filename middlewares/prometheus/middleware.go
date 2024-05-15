@@ -18,7 +18,7 @@ type MiddlewareBuilder struct {
 	Help      string // Help is a descriptive string that provides insights into what the middleware does or is used for. It may be exposed in monitoring tools or documentation.
 }
 
-func InitMiddleWare(namespace string, subsystem string, name string, help string) *MiddlewareBuilder {
+func InitMiddlewareBuilder(namespace string, subsystem string, name string, help string) *MiddlewareBuilder {
 	return &MiddlewareBuilder{
 		Namespace: namespace,
 		Subsystem: subsystem,

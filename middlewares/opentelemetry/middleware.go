@@ -18,15 +18,26 @@ type MiddlewareBuilder struct {
 	// application's request flows and performance.
 }
 
+// InitMiddlewareBuilder initializes and returns a new instance of MiddlewareBuilder.
+// It sets the Tracer field to the global tracer provided by OpenTelemetry with the specified instrumentation name.
+// The instrumentationName must be defined elsewhere in the code.
+// Returns:
+// - a pointer to the newly created MiddlewareBuilder instance.
 func InitMiddlewareBuilder() *MiddlewareBuilder {
 	return &MiddlewareBuilder{
-		Tracer: otel.GetTracerProvider().Tracer(instrumentationName),
+		Tracer: otel.GetTracerProvider().Tracer(instrumentationName), // Obtain the global tracer using the instrumentation name.
 	}
 }
 
+// SetTracer updates the Tracer field of the MiddlewareBuilder with the provided tracer.
+// This allows for setting a specific tracer for telemetry data, which could be part of distributed tracing.
+// Parameters:
+// - tracer: the trace.Tracer instance to set as the MiddlewareBuilder's Tracer.
+// Returns:
+// - the pointer to the MiddlewareBuilder instance to allow method chaining.
 func (m *MiddlewareBuilder) SetTracer(tracer trace.Tracer) *MiddlewareBuilder {
-	m.Tracer = tracer
-	return m
+	m.Tracer = tracer // Set the provided tracer to the Tracer field.
+	return m          // Return the MiddlewareBuilder instance for chaining.
 }
 
 // Build is a method attached to the MiddlewareBuilder struct. This method initializes

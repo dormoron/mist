@@ -8,13 +8,13 @@ import (
 	"strings"
 )
 
-// Initialize constants for crawler identification strings as provided by the crawlerdetect package.
+// Baidu Initialize constants for crawler identification strings as provided by the crawlerdetect package.
 const Baidu = crawlerdetect.Baidu
 const Bing = crawlerdetect.Bing
 const Google = crawlerdetect.Google
 const SoGou = crawlerdetect.SoGou
 
-// Define the MiddlewareBuilder struct to configure middleware for detecting web crawlers.
+// MiddlewareBuilder struct to configure middleware for detecting web crawlers.
 type MiddlewareBuilder struct {
 	// crawlersMap holds the association of crawler user agent strings to the crawler names.
 	crawlersMap map[string]string

@@ -571,27 +571,53 @@ func (c *Context) PathValue(key string) StringValue {
 	return StringValue{val: val}
 }
 
+// Header sets or deletes a specific header in the HTTP response.
+// If the given value is an empty string, the header is deleted.
+// Otherwise, the value is set for the given key.
+// Parameters:
+// - key: the header name to set or delete.
+// - value: the header value to set; if empty, the header with the given key is deleted.
 func (c *Context) Header(key, value string) {
 	if value == "" {
+		// If the value is empty, delete the header from the response.
 		c.ResponseWriter.Header().Del(key)
 		return
 	}
+	// Set the header with the specified value.
 	c.ResponseWriter.Header().Set(key, value)
 }
 
+// Set stores a value in the context under the specified key.
+// This method is safe for concurrent use by multiple goroutines.
+// Parameters:
+// - key: the string key under which to store the value.
+// - value: the value to be stored, which can be of any type.
 func (c *Context) Set(key string, value any) {
+	// Ensure exclusive access to the Keys map to prevent data races.
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+	// Initialize the Keys map if it hasn't been created yet.
 	if c.Keys == nil {
 		c.Keys = make(map[string]any)
 	}
 
+	// Store the value under the specified key.
 	c.Keys[key] = value
 }
 
+// Get retrieves a value stored in the context under the specified key.
+// It returns the value and a boolean indicating whether the key exists in the map.
+// This method is safe for concurrent use by multiple goroutines.
+// Parameters:
+// - key: the string key under which the value is stored.
+// Returns:
+// - value: the value stored under the key; nil if the key does not exist.
+// - exists: a boolean indicating whether the key exists in the map.
 func (c *Context) Get(key string) (value any, exists bool) {
+	// Ensure access to the Keys map is synchronized to prevent data races.
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
+	// Retrieve the value and existence flag for the given key.
 	value, exists = c.Keys[key]
 	return
 }

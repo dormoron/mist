@@ -9,19 +9,6 @@ import (
 	"strings"
 )
 
-// MiddlewareOptions is a function type that takes a pointer to MiddlewareBuilder as its argument.
-// This function type is used as a way to configure or modify the properties of MiddlewareBuilder,
-// typically in a functional options pattern. This allows for flexible configuration without
-// the need for multiple constructors or an overly complex constructor with many parameters.
-// MiddlewareBuilder is an expected struct type that will contain the configuration fields
-// for a middleware component. These options functions can be used to set things like required user hashes,
-// password hashes, paths for scoped middleware application, and other relevant settings.
-// The MiddlewareOptions functions are invoked with a MiddlewareBuilder instance, and they mutate
-// that instance's state directly. This pattern is especially useful in setting up middleware
-// configurations for HTTP servers or frameworks where you want to apply different settings or
-// behaviors conditionally or in a modular way.
-type MiddlewareOptions func(builder *MiddlewareBuilder)
-
 // MiddlewareBuilder is a struct type that encapsulates the logic for
 // building rate limiting middleware which can be used in different contexts,
 // such as an HTTP Server to control the rate of incoming requests.
@@ -45,72 +32,6 @@ type MiddlewareBuilder struct {
 	retryAfterSec int
 }
 
-// WithKeyGenFunc is a function that creates a middleware option for setting the key generation function
-// within the MiddlewareBuilder. The key generation function is used to construct a unique key for each request
-// which is typically used to identify the request for rate-limiting purposes.
-// Parameter:
-//   - fn: This is the key generation function that takes a pointer to a mist.Context and returns a string.
-//     The string returned by fn represents a unique key for the request, such as a session ID,
-//     user ID, or IP address, which will then be used by the rate limiter to track and limit requests.
-//
-// Returns:
-//   - A MiddlewareOptions function which, when called with a MiddlewareBuilder pointer, will set the key generation
-//     function to the MiddlewareBuilder instance. This allows for a custom key generation logic to be injected into
-//     the middleware, enabling flexibility and adaptability to various rate-limiting schemes based on the context
-//     of the request.
-func WithKeyGenFunc(fn func(*mist.Context) string) MiddlewareOptions {
-	return func(builder *MiddlewareBuilder) {
-		builder.keyFn = fn // Sets the custom key generation function to the middleware builder
-	}
-}
-
-// WithLogFunc is a function that defines a middleware option for configuring a logging function
-// within the MiddlewareBuilder. This allows custom logging strategies to be integrated into the middleware,
-// providing flexibility to log various levels of information such as errors, warnings, info, etc.
-// Parameters:
-//   - fn: This parameter is a function that takes a string indicating the log level (e.g., "error", "info"),
-//     a message of any type to log, along with an optional variadic number of additional arguments.
-//     The function 'fn' allows for custom logging logic to be employed based on the context or
-//     requirements of the application. For instance, it could log messages to a file, send them over a network,
-//     or format them in a particular way.
-//
-// Returns:
-//   - A MiddlewareOptions function which, when invoked with a MiddlewareBuilder pointer, sets the logging
-//     function of the MiddlewareBuilder to the custom function 'fn'. This mechanism enables the middleware
-//     to utilize bespoke logging functionality, enhancing the adaptability of logging practices to
-//     suit different operational needs or preferences.
-//
-// Example use case:
-//
-//	The WithLogFunc option could be used to set up a structured logger or integrate with an existing
-//	logging framework within an application, thereby allowing for more consistent and flexible logging
-//	across middleware components.
-func WithLogFunc(fn func(level string, msg any, args ...any)) MiddlewareOptions {
-	return func(builder *MiddlewareBuilder) {
-		builder.logFn = fn // Assigns the custom logging function to the middleware builder
-	}
-}
-
-// WithRetryAfter is a function used to create a middleware option that sets the retry time in
-// MiddleWareBuilder. It is generally employed when a rate limit is exceeded, indicating the number of seconds
-// a client should wait before resending a request.
-// Parameters:
-//   - seconds: This is an integer representing the time in seconds that a client should wait before retrying
-//     in case of rate limit overreach.
-//
-// Returns:
-//   - MiddlewareOptions function which, when invoked with a MiddlewareBuilder pointer, assigns the retryAfterSec
-//     parameter in the MiddlewareBuilder to the provided seconds.
-//
-// Example use case:
-//   - If a client makes too many requests in a given time frame and exceeds the rate limit,
-//     the function can instruct the client to hold on for a certain timespan (seconds) before retrying the request.
-func WithRetryAfter(seconds int) MiddlewareOptions {
-	return func(builder *MiddlewareBuilder) {
-		builder.retryAfterSec = seconds // Sets the client retry time in seconds, to the middleware builder
-	}
-}
-
 // InitMiddlewareBuilder is a function used to initialize a MiddlewareBuilder instance. It sets up
 // the rate limiter, retry timer, default key generation function and the logging function. The function
 // can be further customized with MiddlewareOptions.
@@ -127,7 +48,7 @@ func WithRetryAfter(seconds int) MiddlewareOptions {
 // The InitMiddlewareBuilder function provides initially default implementations for the key generation function
 // (keyFn) and logging function (logFn), but these can be replaced with custom implementations using the
 // WithKeyGenFunc and WithLogFunc functions.
-func InitMiddlewareBuilder(limiter ratelimit.Limiter, retryAfterSec int, opts ...MiddlewareOptions) *MiddlewareBuilder {
+func InitMiddlewareBuilder(limiter ratelimit.Limiter, retryAfterSec int) *MiddlewareBuilder {
 	builder := &MiddlewareBuilder{
 		limiter:       limiter,       // Set up the rate limiter with the provided limiter
 		retryAfterSec: retryAfterSec, // Set up the retry timer with the provided retryAfterSec
@@ -146,11 +67,30 @@ func InitMiddlewareBuilder(limiter ratelimit.Limiter, retryAfterSec int, opts ..
 			log.Println(v...)
 		},
 	}
-	for _, opt := range opts { // Apply any provided MiddlewareOptions to further customize the MiddlewareBuilder
-		opt(builder)
-	}
 
 	return builder // Return the initialized MiddlewareBuilder
+}
+
+// SetKeyGenFunc sets the key generation function to be used by the middleware.
+// This function will be called to generate a key for each request, which can be used for various purposes, such as rate limiting or caching.
+// Parameters:
+// - fn: a function that takes a pointer to a mist.Context and returns a string key.
+// Returns:
+// - the pointer to the MiddlewareBuilder instance to allow method chaining.
+func (b *MiddlewareBuilder) SetKeyGenFunc(fn func(*mist.Context) string) *MiddlewareBuilder {
+	b.keyFn = fn // Assign the provided function to the keyFn field.
+	return b     // Return the MiddlewareBuilder instance for chaining.
+}
+
+// SetLogFunc sets the logging function to be used by the middleware.
+// This function will be called whenever the middleware needs to log information, allowing for custom logging implementations.
+// Parameters:
+// - fn: a function that takes a log level as a string, a message of any type, and optional additional arguments.
+// Returns:
+// - the pointer to the MiddlewareBuilder instance to allow method chaining.
+func (b *MiddlewareBuilder) SetLogFunc(fn func(level string, msg any, args ...any)) *MiddlewareBuilder {
+	b.logFn = fn // Assign the provided function to the logFn field.
+	return b     // Return the MiddlewareBuilder instance for chaining.
 }
 
 // Build is a method of the MiddlewareBuilder type. It returns a middleware that encompasses rate limiting logic.
@@ -203,7 +143,7 @@ func (b *MiddlewareBuilder) Build() mist.Middleware {
 //     or problem in the key generation logic) and returns no limitation (false) and no error (nil).
 //  3. Otherwise, use the rate limiter to determine if the request associated with the key should be limited,
 //     and returns the result.
-func (b MiddlewareBuilder) limit(ctx *mist.Context) (bool, error) {
+func (b *MiddlewareBuilder) limit(ctx *mist.Context) (bool, error) {
 	key := b.keyFn(ctx) // Generate a key for the request using the key function provided in the MiddlewareBuilder.
 	if key == "" {      // Check if the key is an empty string, which indicates a problem in key generation.
 		b.logFn("error", "Failed to generate a key") // Log an error message indicating key generation failure.

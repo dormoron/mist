@@ -12,11 +12,6 @@ import (
 	"strings"
 )
 
-// MiddlewareOptions is a type that defines a function signature for functions that
-// can be used to configure a MiddlewareBuilder. These functions receive a pointer
-// to a MiddlewareBuilder instance and are used to modify its fields or set up configuration.
-type MiddlewareOptions func(builder *MiddlewareBuilder)
-
 // MiddlewareBuilder is a struct that holds the configuration options for constructing a middleware.
 // This configuration will eventually be used to create an instance of a middleware that performs
 // actions like authentication checks on HTTP requests. The structure is set up in a way to be
@@ -43,13 +38,11 @@ type MiddlewareBuilder struct {
 //   - requiredUser: The username that will be required for authentication. It will be hashed and stored in the builder.
 //   - requiredPassword: The password that will be required for authentication. It will also be hashed and stored.
 //   - realm: A description or name for the protected area used in the authentication prompt to inform the user.
-//   - opts: A variadic parameter, allowing zero or more functions that conform to MiddlewareOptions to be passed in.
-//     These functions can modify the builder's properties for additional customization.
 //
 // Returns:
 // - A pointer to an initialized MiddlewareBuilder containing the hashed credentials and applied options.
 // - An error if hashing of the provided credentials fails.
-func InitMiddlewareBuilder(requiredUser, requiredPassword, realm string, opts ...MiddlewareOptions) (*MiddlewareBuilder, error) {
+func InitMiddlewareBuilder(requiredUser, requiredPassword, realm string) (*MiddlewareBuilder, error) {
 	var requiredUserHash []byte // Declare a byte slice to store the hashed username.
 
 	// Check if a username was provided and generate a hash for it using bcrypt.
@@ -77,69 +70,44 @@ func InitMiddlewareBuilder(requiredUser, requiredPassword, realm string, opts ..
 		IsHTTPS:              true,                      // By default, HTTPS is enforced.
 	}
 
-	// Iterate over the provided MiddlewareOptions functions and apply them to the builder.
-	for _, opt := range opts {
-		opt(builder) // Each function modifies the builder in some way.
-	}
-
 	// Return a pointer to the initialized MiddlewareBuilder and nil for the error since all went well.
 	return builder, nil
 }
 
-// WithHTTPS is a function that creates and returns a MiddlewareOptions function, which is used to configure
-// the IsHTTPS field of a MiddlewareBuilder. This configuration function allows you to specify whether
-// the middleware should enforce HTTPS connections.
-//
-// Parameters:
-//   - isHTTPS: A boolean value that sets the middleware's IsHTTPS field.
-//     If true, the middleware will enforce HTTPS connections.
-//
+// RefuseHTTPS configures the MiddlewareBuilder to not require HTTPS for connections.
+// This can be helpful in environments where HTTPS is not available or necessary.
+// It sets the IsHTTPS field of MiddlewareBuilder to false.
 // Returns:
-//   - A MiddlewareOptions function that, when called with a MiddlewareBuilder, will set its IsHTTPS field
-//     according to the value provided to WithHTTPS.
-func WithHTTPS(isHTTPS bool) MiddlewareOptions {
-	// The returned MiddlewareOptions function takes a pointer to a MiddlewareBuilder as its parameter.
-	return func(builder *MiddlewareBuilder) {
-		builder.IsHTTPS = isHTTPS // The IsHTTPS field of MiddlewareBuilder is set to the value passed to WithHTTPS.
-	}
+// - the pointer to the MiddlewareBuilder instance to allow method chaining.
+func (m *MiddlewareBuilder) RefuseHTTPS() *MiddlewareBuilder {
+	m.IsHTTPS = false // Set the IsHTTPS flag to false.
+	return m          // Return the MiddlewareBuilder instance for chaining.
 }
 
-// WithPaths is a function that creates and returns a MiddlewareOptions function designed to configure
-// the Paths field of a MiddlewareBuilder. This MiddlewareOptions function allows for specifying a list
-// of string patterns representing the paths that the middleware should protect. Each provided string pattern
-// is compiled into a regular expression.
-//
+// AddPaths compiles the provided path patterns into regular expressions and adds them to the MiddlewareBuilder.
+// This method allows specifying which paths the middleware should apply to.
 // Parameters:
-//   - pathPatterns: A slice of strings, where each string is a pattern representing a path to be protected
-//     by the middleware. These patterns will be compiled into regular expressions.
-//
+// - pathPatterns: a slice of strings representing the path patterns to be added.
 // Returns:
-//   - A MiddlewareOptions function that, when used with a MiddlewareBuilder, sets its Paths field with
-//     the compiled regular expression patterns of the provided path patterns.
-func WithPaths(pathPatterns []string) MiddlewareOptions {
-	// The returned MiddlewareOptions function accepts a pointer to a MiddlewareBuilder.
-	return func(builder *MiddlewareBuilder) {
-		// Initialize a slice to store the compiled regular expressions. The capacity is set to the length
-		// of the provided pathPatterns to optimize memory allocation.
-		paths := make([]*regexp.Regexp, 0, len(pathPatterns))
+// - the pointer to the MiddlewareBuilder instance to allow method chaining.
+func (m *MiddlewareBuilder) AddPaths(pathPatterns []string) *MiddlewareBuilder {
+	// Initialize a slice to store the compiled regular expressions. The capacity is set to the length of pathPatterns for efficiency.
+	paths := make([]*regexp.Regexp, 0, len(pathPatterns))
 
-		// Iterate over each pattern in the provided pathPatterns slice.
-		for _, pattern := range pathPatterns {
-			// Attempt to compile the current pattern into a regular expression.
-			compiledPattern, err := regexp.Compile(pattern)
-			if err != nil { // Check if there was an error during the compilation.
-				// Log the error message and skip to the next iteration if the pattern fails to compile.
-				log.Printf("failed to compile path pattern '%s': %v", pattern, err)
-				continue
-			}
-			// If the pattern compiles successfully, append the compiled regular expression to the paths slice.
-			paths = append(paths, compiledPattern)
+	for _, pattern := range pathPatterns {
+		// Attempt to compile the current pattern into a regular expression.
+		compiledPattern, err := regexp.Compile(pattern)
+		if err != nil {
+			// If there's an error during compilation, log it and skip adding this pattern.
+			log.Printf("failed to compile path pattern '%s': %v", pattern, err)
+			continue
 		}
-
-		// After processing all patterns, assign the resulting slice of compiled regular expressions
-		// to the Paths field of the MiddlewareBuilder.
-		builder.Paths = paths
+		// Add the successfully compiled pattern to the slice of regular expressions.
+		paths = append(paths, compiledPattern)
 	}
+	// Update the MiddlewareBuilder's Paths field with the compiled patterns.
+	m.Paths = paths
+	return m // Return the MiddlewareBuilder instance for chaining.
 }
 
 // Build is a method of the MiddlewareBuilder struct that constructs a Middleware function
