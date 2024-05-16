@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/dormoron/mist"
 	"github.com/dormoron/mist/internal/errs"
-	"github.com/dormoron/mist/utils"
+	"github.com/dormoron/mist/kit"
 )
 
 // Ensure MemorySession implements the Session interface.
@@ -76,13 +76,13 @@ func (m *MemorySession) Set(ctx context.Context, key string, val any) error {
 // - ctx: The context carrying deadline and cancellation information.
 // - key: The key of the session data to retrieve.
 // Returns:
-// - utils.AnyValue: A struct wrapping the retrieved value or an error if the key does not exist.
-func (m *MemorySession) Get(ctx context.Context, key string) utils.AnyValue {
+// - kit.AnyValue: A struct wrapping the retrieved value or an error if the key does not exist.
+func (m *MemorySession) Get(ctx context.Context, key string) kit.AnyValue {
 	val, ok := m.data[key]
 	if !ok {
-		return utils.AnyValue{Err: errs.ErrKeyNotFound(key)}
+		return kit.AnyValue{Err: errs.ErrKeyNotFound(key)}
 	}
-	return utils.AnyValue{Val: val}
+	return kit.AnyValue{Val: val}
 }
 
 // Claims returns the Claims associated with the session.

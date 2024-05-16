@@ -2,8 +2,8 @@ package redis
 
 import (
 	"context"
+	"github.com/dormoron/mist/kit"
 	"github.com/dormoron/mist/token"
-	"github.com/dormoron/mist/utils"
 	"github.com/redis/go-redis/v9"
 	"time"
 )
@@ -70,13 +70,13 @@ func (sess *Session) init(ctx context.Context, kvs map[string]any) error {
 // - ctx: The context carrying deadline and cancellation information.
 // - key: The key of the field within the session.
 // Returns:
-// - utils.AnyValue: The value of the fetched field or an error if the fetching failed.
-func (sess *Session) Get(ctx context.Context, key string) utils.AnyValue {
+// - kit.AnyValue: The value of the fetched field or an error if the fetching failed.
+func (sess *Session) Get(ctx context.Context, key string) kit.AnyValue {
 	res, err := sess.client.HGet(ctx, sess.key, key).Result()
 	if err != nil {
-		return utils.AnyValue{Err: err}
+		return kit.AnyValue{Err: err}
 	}
-	return utils.AnyValue{
+	return kit.AnyValue{
 		Val: res,
 	}
 }

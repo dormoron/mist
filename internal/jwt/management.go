@@ -3,7 +3,7 @@ package jwt
 import (
 	"github.com/dormoron/mist"
 	"github.com/dormoron/mist/internal/errs"
-	"github.com/dormoron/mist/utils"
+	"github.com/dormoron/mist/kit"
 	"github.com/golang-jwt/jwt/v5"
 	"log/slog"
 	"net/http"
@@ -46,10 +46,10 @@ type Management[T any] struct {
 //
 // Returns:
 // - *Management[T]: A pointer to the newly initialized Management structure parameterized by T.
-func InitManagement[T any](accessJWTOptions Options, opts ...utils.Option[Management[T]]) *Management[T] {
+func InitManagement[T any](accessJWTOptions Options, opts ...kit.Option[Management[T]]) *Management[T] {
 	dOpts := defaultManagementOptions[T]()
 	dOpts.accessJWTOptions = accessJWTOptions
-	utils.Apply[Management[T]](&dOpts, opts...)
+	kit.Apply[Management[T]](&dOpts, opts...)
 
 	return &dOpts
 }
@@ -76,8 +76,8 @@ func defaultManagementOptions[T any]() Management[T] {
 // - header: The name of the HTTP header.
 //
 // Returns:
-// - utils.Option[Management[T]]: A functional option to set the allowTokenHeader field in the Management structure.
-func WithAllowTokenHeader[T any](header string) utils.Option[Management[T]] {
+// - kit.Option[Management[T]]: A functional option to set the allowTokenHeader field in the Management structure.
+func WithAllowTokenHeader[T any](header string) kit.Option[Management[T]] {
 	return func(m *Management[T]) {
 		m.allowTokenHeader = header
 	}
@@ -89,8 +89,8 @@ func WithAllowTokenHeader[T any](header string) utils.Option[Management[T]] {
 // - header: The name of the HTTP header.
 //
 // Returns:
-// - utils.Option[Management[T]]: A functional option to set the exposeAccessHeader field in the Management structure.
-func WithExposeAccessHeader[T any](header string) utils.Option[Management[T]] {
+// - kit.Option[Management[T]]: A functional option to set the exposeAccessHeader field in the Management structure.
+func WithExposeAccessHeader[T any](header string) kit.Option[Management[T]] {
 	return func(m *Management[T]) {
 		m.exposeAccessHeader = header
 	}
@@ -102,8 +102,8 @@ func WithExposeAccessHeader[T any](header string) utils.Option[Management[T]] {
 // - header: The name of the HTTP header.
 //
 // Returns:
-// - utils.Option[Management[T]]: A functional option to set the exposeRefreshHeader field in the Management structure.
-func WithExposeRefreshHeader[T any](header string) utils.Option[Management[T]] {
+// - kit.Option[Management[T]]: A functional option to set the exposeRefreshHeader field in the Management structure.
+func WithExposeRefreshHeader[T any](header string) kit.Option[Management[T]] {
 	return func(m *Management[T]) {
 		m.exposeRefreshHeader = header
 	}
@@ -115,8 +115,8 @@ func WithExposeRefreshHeader[T any](header string) utils.Option[Management[T]] {
 // - refreshOpts: A set of options used to configure refresh JWTs.
 //
 // Returns:
-// - utils.Option[Management[T]]: A functional option to assign the refreshJWTOptions field in the Management structure.
-func WithRefreshJWTOptions[T any](refreshOpts Options) utils.Option[Management[T]] {
+// - kit.Option[Management[T]]: A functional option to assign the refreshJWTOptions field in the Management structure.
+func WithRefreshJWTOptions[T any](refreshOpts Options) kit.Option[Management[T]] {
 	return func(m *Management[T]) {
 		m.refreshJWTOptions = &refreshOpts
 	}
@@ -128,8 +128,8 @@ func WithRefreshJWTOptions[T any](refreshOpts Options) utils.Option[Management[T
 // - isRotate: A boolean flag indicating if refresh token rotation should occur.
 //
 // Returns:
-// - utils.Option[Management[T]]: A functional option to set the rotateRefreshToken field in the Management structure.
-func WithRotateRefreshToken[T any](isRotate bool) utils.Option[Management[T]] {
+// - kit.Option[Management[T]]: A functional option to set the rotateRefreshToken field in the Management structure.
+func WithRotateRefreshToken[T any](isRotate bool) kit.Option[Management[T]] {
 	return func(m *Management[T]) {
 		m.rotateRefreshToken = isRotate
 	}
@@ -141,8 +141,8 @@ func WithRotateRefreshToken[T any](isRotate bool) utils.Option[Management[T]] {
 // - nowFunc: A function that returns the current time.
 //
 // Returns:
-// - utils.Option[Management[T]]: A functional option to set the nowFunc field in the Management structure.
-func WithNowFunc[T any](nowFunc func() time.Time) utils.Option[Management[T]] {
+// - kit.Option[Management[T]]: A functional option to set the nowFunc field in the Management structure.
+func WithNowFunc[T any](nowFunc func() time.Time) kit.Option[Management[T]] {
 	return func(m *Management[T]) {
 		m.nowFunc = nowFunc
 	}

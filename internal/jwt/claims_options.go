@@ -1,7 +1,7 @@
 package jwt
 
 import (
-	"github.com/dormoron/mist/utils"
+	"github.com/dormoron/mist/kit"
 	"github.com/golang-jwt/jwt/v5"
 	"time"
 )
@@ -33,7 +33,7 @@ type Options struct {
 // Returns:
 // - Options: A struct containing configuration options for JWT token management.
 func InitOptions(expire time.Duration, encryptionKey string,
-	opts ...utils.Option[Options]) Options {
+	opts ...kit.Option[Options]) Options {
 	dOpts := Options{
 		Expire:        expire,
 		EncryptionKey: encryptionKey,
@@ -42,7 +42,7 @@ func InitOptions(expire time.Duration, encryptionKey string,
 		// genIDFn is a function that generates a token identifier, initialized as an empty function by default.
 		genIDFn: func() string { return "" },
 	}
-	utils.Apply[Options](&dOpts, opts...) // Apply any additional options provided.
+	kit.Apply[Options](&dOpts, opts...) // Apply any additional options provided.
 
 	return dOpts
 }
@@ -53,8 +53,8 @@ func InitOptions(expire time.Duration, encryptionKey string,
 // - decryptKey: The key to be used for decryption.
 //
 // Returns:
-// - utils.Option[Options]: A functional option to set the decryptKey field in Options.
-func WithDecryptKey(decryptKey string) utils.Option[Options] {
+// - kit.Option[Options]: A functional option to set the decryptKey field in Options.
+func WithDecryptKey(decryptKey string) kit.Option[Options] {
 	return func(o *Options) {
 		o.DecryptKey = decryptKey
 	}
@@ -66,8 +66,8 @@ func WithDecryptKey(decryptKey string) utils.Option[Options] {
 // - method: JWT signing method.
 //
 // Returns:
-// - utils.Option[Options]: A functional option to set the Method field in Options.
-func WithMethod(method jwt.SigningMethod) utils.Option[Options] {
+// - kit.Option[Options]: A functional option to set the Method field in Options.
+func WithMethod(method jwt.SigningMethod) kit.Option[Options] {
 	return func(o *Options) {
 		o.Method = method
 	}
@@ -79,8 +79,8 @@ func WithMethod(method jwt.SigningMethod) utils.Option[Options] {
 // - issuer: The party who issues the JWT.
 //
 // Returns:
-// - utils.Option[Options]: A functional option to set the Issuer field in Options.
-func WithIssuer(issuer string) utils.Option[Options] {
+// - kit.Option[Options]: A functional option to set the Issuer field in Options.
+func WithIssuer(issuer string) kit.Option[Options] {
 	return func(o *Options) {
 		o.Issuer = issuer
 	}
@@ -92,8 +92,8 @@ func WithIssuer(issuer string) utils.Option[Options] {
 // - fn: A function that generates a unique string ID.
 //
 // Returns:
-// - utils.Option[Options]: A functional option to set the genIDFn field in Options.
-func WithGenIDFunc(fn func() string) utils.Option[Options] {
+// - kit.Option[Options]: A functional option to set the genIDFn field in Options.
+func WithGenIDFunc(fn func() string) kit.Option[Options] {
 	return func(o *Options) {
 		o.genIDFn = fn
 	}

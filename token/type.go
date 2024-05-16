@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/dormoron/mist"
 	"github.com/dormoron/mist/internal/errs"
-	"github.com/dormoron/mist/utils"
+	"github.com/dormoron/mist/kit"
 )
 
 // Session represents the session management interface.
@@ -24,8 +24,8 @@ type Session interface {
 	// - ctx: Context for managing request-scoped values, deadlines, and cancellations.
 	// - key: The key under which the value is stored.
 	// Returns:
-	// - utils.AnyValue: The value retrieved from the session, wrapped in an AnyValue type for flexibility.
-	Get(ctx context.Context, key string) utils.AnyValue
+	// - kit.AnyValue: The value retrieved from the session, wrapped in an AnyValue type for flexibility.
+	Get(ctx context.Context, key string) kit.AnyValue
 
 	// Del deletes a key-value pair from the session based on the key.
 	// Parameters:
@@ -97,11 +97,11 @@ type Claims struct {
 // Parameters:
 // - key: The key identifying the claim to be retrieved.
 // Returns:
-// - utils.AnyValue: A wrapper for the retrieved value, containing either the value or an error if not found.
-func (c Claims) Get(key string) utils.AnyValue {
+// - kit.AnyValue: A wrapper for the retrieved value, containing either the value or an error if not found.
+func (c Claims) Get(key string) kit.AnyValue {
 	val, ok := c.Data[key]
 	if !ok {
-		return utils.AnyValue{Err: errs.ErrKeyNotFound(key)}
+		return kit.AnyValue{Err: errs.ErrKeyNotFound(key)}
 	}
-	return utils.AnyValue{Val: val}
+	return kit.AnyValue{Val: val}
 }

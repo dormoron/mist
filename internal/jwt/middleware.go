@@ -2,7 +2,7 @@ package jwt
 
 import (
 	"github.com/dormoron/mist"
-	"github.com/dormoron/mist/utils"
+	"github.com/dormoron/mist/kit"
 	"github.com/golang-jwt/jwt/v5"
 	"log/slog"
 	"net/http"
@@ -108,7 +108,7 @@ func (m *MiddlewareBuilder[T]) Build() mist.Middleware {
 // - func(path string) bool: A function that takes a path string as an argument and returns true if the path is part of the ignored list.
 func staticIgnorePaths(paths ...string) func(path string) bool {
 	// Initialize a set with the capacity based on the number of paths provided.
-	s := utils.InitMapSet[string](len(paths))
+	s := kit.InitMapSet[string](len(paths))
 	// Add each provided path to the set.
 	for _, path := range paths {
 		s.Add(path)
