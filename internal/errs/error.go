@@ -6,9 +6,11 @@ import (
 )
 
 var (
-	errKeyNotFound       = errors.New("session: key not found")
-	errSessionNotFound   = errors.New("session: session not found")
-	errIdSessionNotFound = errors.New("session: session corresponding to id does not exist")
+	errKeyNotFound        = errors.New("session: key not found")
+	errSessionNotFound    = errors.New("session: session not found")
+	errIdSessionNotFound  = errors.New("session: session corresponding to id does not exist")
+	errVerificationFailed = errors.New("session: verification failed")
+	errEmptyRefreshOpts   = errors.New("refreshJWTOptions are nil")
 	// context error
 	errInputNil = errors.New("web: input cannot be nil")
 	errBodyNil  = errors.New("web: body is nil")
@@ -43,6 +45,14 @@ func ErrSessionNotFound() error {
 
 func ErrIdSessionNotFound() error {
 	return fmt.Errorf("%w", errIdSessionNotFound)
+}
+
+func ErrVerificationFailed(err error) error {
+	return fmt.Errorf("%w, %w", errVerificationFailed, err)
+}
+
+func ErrEmptyRefreshOpts() error {
+	return fmt.Errorf("%w", errEmptyRefreshOpts)
 }
 
 func ErrInputNil() error {
