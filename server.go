@@ -232,33 +232,17 @@ func ServerWithMiddleware(mils ...Middleware) HTTPServerOption {
 	}
 }
 
-// Use attaches the provided middlewares to the existing set of middlewares in the HTTPServer instance.
-// If no middleware has been set yet, it initializes the middleware list with the provided ones.
-// If there are already middlewares present in the server, it appends the new ones to the end
-// of the middleware chain.
-//
-// Middlewares are executed in the order they are added to the server, meaning that the order
-// of middlewares can affect the request/response processing. They are commonly used to handle tasks
-// such as request logging, authentication, input validation, error handling, etc.
-//
-// Usage example:
-//
-//	server := &HTTPServer{}
-//	server.Use(loggingMiddleware)
-//	server.Use(authenticationMiddleware)
+// Use registers a variable number of middleware functions to be applied to all routes for the HTTP server.
+// The middleware functions provided will be called in the order they are passed for every request.
 //
 // Parameters:
-// - mils ...Middleware : One or multiple Middleware functions to add to the server's middleware chain.
+// mils ...Middleware - A variadic slice of middleware functions to be applied.
 //
-// Note:
-// This method appends provided middlewares variably, allowing for zero or more middlewares to be added
-// at once. If called with no arguments, it will simply do nothing to the current middleware chain.
+// Example:
+// s.Use(loggingMiddleware, authenticationMiddleware)
 func (s *HTTPServer) Use(mils ...Middleware) {
-	if s.mils == nil {
-		s.mils = mils
-		return
-	}
-	s.mils = append(s.mils, mils...)
+	// UseForAll is invoked with a wildcard pattern to apply the middleware to all routes.
+	s.UseForAll("/*", mils...)
 }
 
 // UseRoute associates a new route with the specified HTTP method and path to the server's routing system.
@@ -292,19 +276,6 @@ func (s *HTTPServer) UseRoute(method string, path string, mils ...Middleware) {
 	s.registerRoute(method, path, nil, mils...)
 }
 
-// UseForAll associates the provided middlewares with all HTTP methods for the specified path.
-// This method configures the HTTP server to apply the given middlewares to every request method
-// (GET, POST, OPTIONS, etc.) for the specified route path. This is useful when you want consistent
-// middleware execution for a path, irrespective of the HTTP method used in the request.
-//
-// Parameters:
-// - path: The URL pattern to match against incoming request URLs.
-// - mdls: A variadic list of middlewares to be applied to all requests for the route.
-//
-// Usage:
-//   - server.UseForAll("/api/resource", loggerMiddleware, authMiddleware)
-//     This example would apply the logger and auth middlewares to all request
-//     methods for path "/api/resource".
 func (s *HTTPServer) UseForAll(path string, mdls ...Middleware) {
 	// Register the middlewares for the HTTP GET method for the specified path.
 	s.registerRoute(http.MethodGet, path, nil, mdls...)

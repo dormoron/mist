@@ -50,6 +50,8 @@ type Session interface {
 
 // Provider represents the session provider interface.
 // It supports session initialization, retrieval, updating claims, and renewing the access token.
+//
+//go:generate mockgen -source=./types.go -destination=./provider.mock_test.go -package=token Provider
 type Provider interface {
 	// InitSession initializes a session for the user with the provided data.
 	// Parameters:
