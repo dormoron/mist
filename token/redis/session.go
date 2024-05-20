@@ -30,7 +30,7 @@ func (sess *Session) Destroy(ctx context.Context) error {
 
 // Del method removes a specific field from the Session in Redis.
 // Parameters:
-// - ctx: The context carrying deadline and cancellation information.
+// - ctx: The context carrying deadline and cancellation information
 // - key: The key of the field within the session data.
 // Returns:
 // - error: Potential error during field deletion.

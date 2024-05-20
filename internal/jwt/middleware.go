@@ -95,6 +95,8 @@ func (m *MiddlewareBuilder[T]) Build() mist.Middleware {
 			}
 			// If token validation is successful, set the claims in the context for the downstream handlers.
 			m.manager.SetClaims(ctx, clm)
+			// Call the next middleware or final handler in the chain.
+			next(ctx)
 		}
 	}
 }

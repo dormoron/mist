@@ -84,13 +84,13 @@ func (m *MiddlewareBuilder) RefuseHTTPS() *MiddlewareBuilder {
 	return m          // Return the MiddlewareBuilder instance for chaining.
 }
 
-// AddPaths compiles the provided path patterns into regular expressions and adds them to the MiddlewareBuilder.
+// IgnorePaths compiles the provided path patterns into regular expressions and adds them to the MiddlewareBuilder.
 // This method allows specifying which paths the middleware should apply to.
 // Parameters:
 // - pathPatterns: a slice of strings representing the path patterns to be added.
 // Returns:
 // - the pointer to the MiddlewareBuilder instance to allow method chaining.
-func (m *MiddlewareBuilder) AddPaths(pathPatterns []string) *MiddlewareBuilder {
+func (m *MiddlewareBuilder) IgnorePaths(pathPatterns []string) *MiddlewareBuilder {
 	// Initialize a slice to store the compiled regular expressions. The capacity is set to the length of pathPatterns for efficiency.
 	paths := make([]*regexp.Regexp, 0, len(pathPatterns))
 

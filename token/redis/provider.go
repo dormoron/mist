@@ -29,7 +29,7 @@ type SessionProvider struct {
 
 // UpdateClaims handles updating the session with new JWT claims.
 // Parameters:
-// - ctx:    The request context containing headers and session data.
+// - ctx: The request context containing headers and session data.
 // - claims: The claims to embed within the generated JWT.
 // Returns:
 // - error: Any error encountered during access or refresh token generation.
@@ -51,7 +51,7 @@ func (rsp *SessionProvider) UpdateClaims(ctx *mist.Context, claims token.Claims)
 // Parameters:
 // - ctx: The request context containing session information and headers.
 // Returns:
-// - error: Any error occurred during refreshing the token or if the refresh token is expired.
+// - error: Any error occurred during refreshing the token, or if the refresh token is expired.
 func (rsp *SessionProvider) RenewAccessToken(ctx *mist.Context) error {
 	rt := rsp.extractTokenString(ctx)              // Extract the refresh token from the context.
 	jwtClaims, err := rsp.m.VerifyRefreshToken(rt) // Verify the refresh token.
@@ -80,8 +80,8 @@ func (rsp *SessionProvider) RenewAccessToken(ctx *mist.Context) error {
 
 // InitSession initializes a session for a user with provided UID and JWT data.
 // Parameters:
-// - ctx:     The request context including headers and session information.
-// - uid:     The user identifier for whom the session is to be created.
+// - ctx: The request context including headers and session information.
+// - uid: The user identifier for whom the session is to be created.
 // - jwtData: JWT claims to be included in the token.
 // - sessData: Session-specific data that needs to be persisted.
 // Returns:
