@@ -51,11 +51,11 @@ func DefaultProvider() Provider {
 	return defaultProvider
 }
 
-// CheckLoginMiddleware creates and returns a middleware that uses the default session provider
+// AuthMiddleware creates and returns a middleware that uses the default session provider
 // to check if the user is logged in for each request.
 // Returns:
 // - mist.Middleware: The middleware function for checking login status.
-func CheckLoginMiddleware() mist.Middleware {
+func AuthMiddleware() mist.Middleware {
 	return (&MiddlewareBuilder{sp: defaultProvider}).Build()
 }
 

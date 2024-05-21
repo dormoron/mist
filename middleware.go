@@ -28,21 +28,6 @@ package mist
 //   - They are chained together so that a request goes through a series of middleware before finally being
 //     handled by the main processing function.
 //
-// Example:
-// - To write a logging middleware that logs each request:
-//
-//	func loggingMiddleware(next HandleFunc) HandleFunc {
-//	    return func(w http.ResponseWriter, r *http.Request) {
-//	        // Log the request details
-//	        log.Printf("Request received: %s %s", r.Method, r.URL.Path)
-//	        // Call the next middleware/handler
-//	        next(w, r)
-//	    }
-//	}
-//
-//	// Then this middleware can be used like so:
-//	http.Handle("/", loggingMiddleware(finalHandler))
-//
 // Considerations:
 //   - When designing middleware, one should ensure that no necessary 'next' handlers are skipped inadvertently.
 //     Unless it's intentional (e.g., an authorization middleware stopping unauthorized requests), a middleware
