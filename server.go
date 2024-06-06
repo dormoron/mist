@@ -297,38 +297,64 @@ func (s *HTTPServer) UseForAll(path string, mdls ...Middleware) {
 	s.registerRoute(http.MethodTrace, path, nil, mdls...)
 }
 
-// ServeHTTP is the core method for handling incoming HTTP requests in the HTTPServer. This method fulfills the
-// http.Handler interface, making an HTTPServer instance compatible with Go's built-in HTTP server machinery.
-// ServeHTTP is responsible for creating the context for the request, applying middleware, and calling the final
-// request handler. After the request is processed, it ensures that any buffered response (if applicable) is flushed
-// to the client.
+// ServeHTTP is the core method for handling incoming HTTP requests in the HTTPServer.
+// This method fulfills the http.Handler interface, making an HTTPServer instance compatible
+// with Go's built-in HTTP server machinery. ServeHTTP is responsible for creating the context
+// for the request, applying middleware, and calling the final request handler. After the request
+// is processed, it ensures that any buffered response (if applicable) is flushed to the client.
 //
 // Parameters:
 // - writer: An http.ResponseWriter that is used to write the HTTP response to be sent to the client.
 // - request: An *http.Request that represents the client's HTTP request being handled.
-//
-// The ServeHTTP function operates in the following manner:
-//
-//  1. It begins by creating a new Context instance, which is a custom type holding the HTTP request and response
-//     writer, along with other request-specific information like the templating engine.
-//  2. It retrieves the root handler from the server's configuration 's.server', which represents the starting point
-//     for the request handling pipeline.
-//  3. Iteratively wraps the root handler with the server's configured middleware in reverse order. Middleware is
-//     essentially a chain of functions that can execute before and/or after the main request handler to perform
-//     tasks such as logging, authentication, etc.
-//  4. Introduces a final middleware that calls the next handler in the chain and then flushes any buffered response
-//     using 's.flashResp'. This ensures that even if a response is buffered (for performance reasons or to allow
-//     for manipulations), it gets sent out after the request is processed.
-//  5. Calls the fully wrapped root handler, beginning the execution of the middleware chain and ultimately invoking
-//     the appropriate request handler.
 func (s *HTTPServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	// Create the context that will traverse the request handling chain.
+	// Create a new Context instance, which holds the HTTP request and response
+	// writer, along with additional request-specific information.
 	ctx := &Context{
 		Request:        request,          // The original HTTP request.
 		ResponseWriter: writer,           // The ResponseWriter to work with the HTTP response.
-		templateEngine: s.templateEngine, // The templating engine, if any, to render HTML views.
+		templateEngine: s.templateEngine, // The templating engine for rendering HTML views.
 	}
-	s.server(ctx)
+
+	// Start with the main serve method as the root handler.
+	root := s.serve
+
+	// Wrap the root handler with each middleware in reverse order.
+	// This ensures the middleware is applied in the order they were added.
+	for i := len(s.mils) - 1; i >= 0; i-- {
+		root = s.mils[i](root)
+	}
+
+	// Define a middleware to ensure the response is properly sent after
+	// all handlers and middlewares have finished processing.
+	var m Middleware = func(next HandleFunc) HandleFunc {
+		// This middleware function wraps the next handler function in the chain.
+		return func(ctx *Context) {
+			// If the request has been aborted, flush the response immediately.
+			if ctx.Aborted {
+				s.flashResp(ctx)
+				return
+			}
+
+			// Call the next handler in the chain.
+			next(ctx)
+
+			// After the next handler, check if the request has been aborted.
+			// If so, flush the response immediately.
+			if ctx.Aborted {
+				s.flashResp(ctx)
+				return
+			}
+
+			// Ensure the response is flushed after all handlers and middlewares finish processing.
+			s.flashResp(ctx)
+		}
+	}
+
+	// Apply the response-flushing middleware as the last in the chain.
+	root = m(root)
+
+	// Invoke the root handler, starting the middleware chain and ultimately the request handler.
+	root(ctx)
 }
 
 // flashResp is a method on the HTTPServer struct that commits the HTTP response
@@ -370,66 +396,32 @@ func (s *HTTPServer) flashResp(ctx *Context) {
 	}
 }
 
-// server is a method that handles incoming HTTP requests by resolving the appropriate
-// route and executing the associated handler, along with any applicable middlewares.
-func (s *HTTPServer) server(ctx *Context) {
-	// Find the route that matches the method and path of the request.
-	mi, ok := s.findRoute(ctx.Request.Method, ctx.Request.URL.Path)
+// serve is the core request handling method for the HTTPServer. It is responsible
+// for finding the appropriate route for the incoming request, and invoking the corresponding
+// handler if the route is found. If the route is not found or there is no handler for the route,
+// it sets a 404 Not Found status code and response.
+//
+// Parameters:
+// - ctx: A pointer to a Context which contains the request and response information, among other things.
+func (s *HTTPServer) serve(ctx *Context) {
+	// Find the route information (including the handler) based on the request's method and URL path.
+	// The findRoute method returns a routeInfo struct and a boolean indicating whether the route was found.
+	info, ok := s.findRoute(ctx.Request.Method, ctx.Request.URL.Path)
 
-	// If a matching node is found, populate the context with the route-specific
-	// path parameters and the matched route.
-	if mi.n != nil {
-		ctx.PathParams = mi.pathParams
-		ctx.MatchedRoute = mi.n.route
+	// If the route was not found or there is no handler associated with the route,
+	// set the response status code to 404 Not Found and set the response body to "NOT FOUND".
+	if !ok || info.n.handler == nil {
+		ctx.RespStatusCode = http.StatusNotFound // Set the response HTTP status to 404.
+		ctx.RespData = []byte("NOT FOUND")       // Set the response body to "NOT FOUND".
+		return
 	}
 
-	// Define a root handle function that will attempt to execute the matched route's handler.
-	// If no match is found, or if the matched node does not have a handler, a 404-status code is set.
-	var root HandleFunc = func(ctx *Context) {
-		if !ok || mi.n == nil || mi.n.handler == nil {
-			ctx.RespStatusCode = 404 // Set status code to '404 Not Found' if the route is not resolved.
-			return
-		}
-		// If a handler exists for the route, call it passing the context.
-		mi.n.handler(ctx)
-	}
+	// If the route is found, store the path parameters (if any) and matched route in the context.
+	ctx.PathParams = info.pathParams // Store any path parameters extracted from the URL.
+	ctx.MatchedRoute = info.n.route  // Store the matched route information in the context.
 
-	// Execute all the applicable middlewares in reverse order.
-	// This is typically done to wrap the final handler with additional functionality.
-	for i := len(mi.mils) - 1; i >= 0; i-- {
-		root = mi.mils[i](root)
-	}
-
-	// Define a middleware that ensures the response is properly sent after
-	// the handler (and any other middlewares) have finished processing.
-	var m Middleware = func(next HandleFunc) HandleFunc {
-		return func(ctx *Context) {
-			if ctx.Aborted {
-				// If the request has been aborted, immediately flush the response
-				// and do not call any further middlewares or handlers.
-				s.flashResp(ctx)
-				return
-			}
-
-			next(ctx) // Call the next middleware or final handler.
-
-			if ctx.Aborted {
-				// After executing the next middleware or final handler, again check if
-				// the request has been aborted. If so, flush the response immediately.
-				s.flashResp(ctx)
-				return
-			}
-
-			s.flashResp(ctx)
-		}
-	}
-
-	// Wrap the root handler with the flushing middleware.
-	root = m(root)
-
-	// Invoke the root function which represents the chain of middlewares
-	// ending with the route's handler.
-	root(ctx)
+	// Invoke the handler associated with the route and pass the context to it.
+	info.n.handler(ctx)
 }
 
 // Start initiates the HTTP server listening on the specified address. It sets up a TCP network listener on the
