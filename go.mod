@@ -5,7 +5,6 @@ go 1.22
 require (
 	github.com/casbin/casbin/v2 v2.89.0
 	github.com/fsnotify/fsnotify v1.7.0
-	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/uuid v1.6.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/prometheus/client_golang v1.19.1
@@ -20,6 +19,7 @@ require (
 	github.com/casbin/govaluate v1.1.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	go.opentelemetry.io/otel/metric v1.26.0 // indirect
+	go.uber.org/multierr v1.10.0 // indirect
 )
 
 require (

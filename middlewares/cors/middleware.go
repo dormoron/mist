@@ -42,32 +42,22 @@ func (m *MiddlewareBuilder) Build() mist.Middleware {
 		return func(ctx *mist.Context) {
 			// Determine the 'Access-Control-Allow-Origin' value based on the MiddlewareBuilder configuration.
 			allowOrigin := m.AllowOrigin
-			// If AllowOrigin is not set in MiddlewareBuilder, use the origin from the incoming request.
 			if allowOrigin == "" {
 				allowOrigin = ctx.Request.Header.Get("Origin")
 			}
-			// Set the 'Access-Control-Allow-Origin' header in the response to the determined value.
 			ctx.ResponseWriter.Header().Set("Access-Control-Allow-Origin", allowOrigin)
-
-			// Set 'Access-Control-Allow-Credentials' header to "true" to allow credentials to be included in CORS requests.
+			// ctx.Resp.Header().Set("Access-Control-Allow-Origin", "*")
+			ctx.ResponseWriter.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
 			ctx.ResponseWriter.Header().Set("Access-Control-Allow-Credentials", "true")
-
-			// Set default 'Access-Control-Allow-Headers' to include 'Content-Type' if not already specified.
 			if ctx.ResponseWriter.Header().Get("Access-Control-Allow-Headers") == "" {
-				ctx.ResponseWriter.Header().Add("Access-Control-Allow-Headers", "Content-Type")
+				ctx.ResponseWriter.Header().Add("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
 			}
-
-			// Handle preflight OPTIONS requests specifically, allowing for CORS preflight checks.
 			if ctx.Request.Method == http.MethodOptions {
-				// Set the response status code to 200 to indicate success.
 				ctx.RespStatusCode = 200
-				// Include a simple "ok" response data.
 				ctx.RespData = []byte("ok")
-				// Exit early to complete processing of the OPTIONS request.
+				next(ctx)
 				return
 			}
-
-			// For non-OPTIONS requests, call the next middleware or handler in the chain.
 			next(ctx)
 		}
 	}

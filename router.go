@@ -283,7 +283,6 @@ func (r *router) findRoute(method string, path string) (*matchInfo, bool) {
 	mi := &matchInfo{}
 	// Start from the root node.
 	cur := root
-
 	// Loop through the path segments to traverse the routing tree.
 	for _, s := range segs {
 		var matchParam bool // Used to check if the current node match is a parameterized path segment.

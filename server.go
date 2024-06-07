@@ -135,7 +135,6 @@ type HTTPServerOption func(server *HTTPServer) // Functional option for configur
 // handle routing, execute business logic, and generate dynamic responses.
 type HTTPServer struct {
 	router                        // Embedded routing management. Provides direct access to routing methods.
-	mils           []Middleware   // Middleware stack. A slice of Middleware functions to process requests.
 	log            Logger         // Logger interface. Allows for flexible and consistent logging.
 	templateEngine TemplateEngine // Template processor interface. Facilitates HTML template rendering.
 }
@@ -204,31 +203,6 @@ func InitHTTPServer(opts ...HTTPServerOption) *HTTPServer {
 func ServerWithTemplateEngine(templateEngine TemplateEngine) HTTPServerOption {
 	return func(server *HTTPServer) {
 		server.templateEngine = templateEngine
-	}
-}
-
-// ServerWithMiddleware takes a variadic slice of Middleware functions and returns
-// an HTTPServerOption. This option configures a HTTPServer with the provided
-// middlewares. Middlewares are used to intercept or otherwise modify requests
-// and responses in an HTTP server. Middleware functions are typically used for
-// logging, security controls, rate limiting, etc.
-//
-// Example of using ServerWithMiddleware to configure an HTTPServer with middlewares:
-//
-//	myServer := NewHTTPServer(
-//	    ServerWithMiddleware(loggingMiddleware, authenticationMiddleware),
-//	)
-//
-// Parameters:
-// - mils ...Middleware : A variadic slice of Middleware functions to be applied to the server.
-//
-// Returns:
-//   - HTTPServerOption : A function that takes an HTTPServer pointer and assigns the provided
-//     middlewares to it. This function can be applied as a configuration option when creating
-//     an HTTPServer.
-func ServerWithMiddleware(mils ...Middleware) HTTPServerOption {
-	return func(server *HTTPServer) {
-		server.mils = mils
 	}
 }
 
@@ -373,6 +347,10 @@ func (s *HTTPServer) flashResp(ctx *Context) {
 // server is a method that handles incoming HTTP requests by resolving the appropriate
 // route and executing the associated handler, along with any applicable middlewares.
 func (s *HTTPServer) server(ctx *Context) {
+	//todo Simple route processing by cors. Changes should be made later
+	if ctx.Request.Method == http.MethodOptions {
+		ctx.Request.Method = ctx.Request.Header.Get("Access-Control-Allow-Methods")
+	}
 	// Find the route that matches the method and path of the request.
 	mi, ok := s.findRoute(ctx.Request.Method, ctx.Request.URL.Path)
 
