@@ -347,10 +347,6 @@ func (s *HTTPServer) flashResp(ctx *Context) {
 // server is a method that handles incoming HTTP requests by resolving the appropriate
 // route and executing the associated handler, along with any applicable middlewares.
 func (s *HTTPServer) server(ctx *Context) {
-	//todo Simple route processing by cors. Changes should be made later
-	if ctx.Request.Method == http.MethodOptions {
-		ctx.Request.Method = ctx.Request.Header.Get("Access-Control-Allow-Methods")
-	}
 	// Find the route that matches the method and path of the request.
 	mi, ok := s.findRoute(ctx.Request.Method, ctx.Request.URL.Path)
 
