@@ -131,10 +131,10 @@ func (b *MiddlewareBuilder) Build() mist.Middleware {
 				// Compile access log information into a struct from the provided context `ctx`.
 				log := accessLog{
 					Host:       ctx.Request.Host,     // Hostname from the HTTP request
+					StatusCode: ctx.RespStatusCode,   // status code the HTTP request
 					Route:      ctx.MatchedRoute,     // The route pattern matched for the request
 					Method:     ctx.Request.Method,   // HTTP method, e.g., GET, POST
 					Path:       ctx.Request.URL.Path, // Request path
-					StatusCode: ctx.RespStatusCode,
 				}
 				// Convert the access log struct to JSON format.
 				data, _ := json.Marshal(log)
@@ -174,19 +174,10 @@ func (b *MiddlewareBuilder) Build() mist.Middleware {
 //
 // An instance of accessLog is created and populated with data from an HTTP request context and then marshalled into JSON.
 // The JSON output is then passed to a logging function to record the incoming requests being handled by an HTTP server.
-//
-// Example of accessLog JSON representation:
-//
-//	{
-//	    "host": "example.com",
-//	    "route": "/users/{userID}",
-//	    "http_method": "GET",
-//	    "path": "/users/123"
-//	}
 type accessLog struct {
 	Host       string `json:"host,omitempty"`   // The server host name or IP address from the HTTP request.
 	Route      string `json:"route,omitempty"`  // The matched route pattern for the request.
 	Method     string `json:"method,omitempty"` // The method used in the request (e.g., GET, POST).
 	Path       string `json:"path,omitempty"`   // The path of the HTTP request URL.
-	StatusCode int    `json:"status,omitempty"` //
+	StatusCode int    `json:"status,omitempty"` //The statusCode of the HTTP request status.
 }
