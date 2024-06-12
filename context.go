@@ -90,6 +90,7 @@ func (c *Context) writeHeader(statusCode int) {
 	if c.Aborted {
 		return
 	}
+
 	// Check if the header has already been written.
 	// The headerWritten field is a boolean and it indicates whether the
 	// HTTP status code and headers have already been sent to the client.
@@ -101,6 +102,7 @@ func (c *Context) writeHeader(statusCode int) {
 		// result in a runtime error, as the HTTP protocol allows for only one
 		// set of headers per response.
 		c.ResponseWriter.WriteHeader(statusCode)
+		c.RespStatusCode = statusCode
 
 		// Set the headerWritten flag to true to indicate that the header
 		// has now been written for this request.
