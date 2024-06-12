@@ -132,8 +132,9 @@ func (b *MiddlewareBuilder) Build() mist.Middleware {
 				log := accessLog{
 					Host:       ctx.Request.Host,     // Hostname from the HTTP request
 					Route:      ctx.MatchedRoute,     // The route pattern matched for the request
-					HTTPMethod: ctx.Request.Method,   // HTTP method, e.g., GET, POST
+					Method:     ctx.Request.Method,   // HTTP method, e.g., GET, POST
 					Path:       ctx.Request.URL.Path, // Request path
+					StatusCode: ctx.RespStatusCode,
 				}
 				// Convert the access log struct to JSON format.
 				data, _ := json.Marshal(log)
@@ -183,8 +184,9 @@ func (b *MiddlewareBuilder) Build() mist.Middleware {
 //	    "path": "/users/123"
 //	}
 type accessLog struct {
-	Host       string `json:"host,omitempty"`        // The server host name or IP address from the HTTP request.
-	Route      string `json:"route,omitempty"`       // The matched route pattern for the request.
-	HTTPMethod string `json:"http_method,omitempty"` // The HTTP method used in the request (e.g., GET, POST).
-	Path       string `json:"path,omitempty"`        // The path of the HTTP request URL.
+	Host       string `json:"host,omitempty"`   // The server host name or IP address from the HTTP request.
+	Route      string `json:"route,omitempty"`  // The matched route pattern for the request.
+	Method     string `json:"method,omitempty"` // The method used in the request (e.g., GET, POST).
+	Path       string `json:"path,omitempty"`   // The path of the HTTP request URL.
+	StatusCode int    `json:"status,omitempty"` //
 }
