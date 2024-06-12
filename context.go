@@ -75,6 +75,60 @@ type Context struct {
 	Aborted bool
 }
 
+// Deadline returns the time when the context will be canceled, if any.
+// It delegates the call to the underlying standard context associated with the request.
+//
+// Returns:
+//
+//	deadline (time.Time): The time when work done on behalf of this context should be canceled.
+//	ok (bool): True if a deadline is set, false if no deadline is set.
+func (c *Context) Deadline() (deadline time.Time, ok bool) {
+	return c.Request.Context().Deadline()
+}
+
+// Done returns a channel that is closed when the context is canceled or times out.
+// It delegates the call to the underlying standard context associated with the request.
+//
+// Returns:
+//
+//	(<-chan struct{}): A channel that is closed when the context is canceled or times out.
+func (c *Context) Done() <-chan struct{} {
+	return c.Request.Context().Done()
+}
+
+// Err returns an error indicating why the context was canceled, if applicable.
+// It delegates the call to the underlying standard context associated with the request.
+//
+// Returns:
+//
+//	(error): A non-nil error value after the Done channel is closed.
+//	         If the Done channel is not yet closed, returns nil.
+func (c *Context) Err() error {
+	return c.Request.Context().Err()
+}
+
+// Value retrieves the value associated with the provided key.
+// If the key is a string, it first attempts to fetch the value from the custom
+// context-specific storage. If the key is not found or is not a string,
+// it falls back to the standard context's Value method.
+//
+// Parameters:
+//
+//	key (any): The key to look up in the context. If this is a string,
+//	           it attempts to fetch the value from the custom context-specific storage.
+//
+// Returns:
+//
+//	(any): The value associated with the key, if found; otherwise nil.
+func (c *Context) Value(key any) any {
+	if keyAsString, ok := key.(string); ok {
+		if val, exists := c.Get(keyAsString); exists {
+			return val
+		}
+	}
+	return c.Request.Context().Value(key)
+}
+
 // writeHeader sends an HTTP response header with the provided status code
 // if the header has not been written yet. It ensures that the WriteHeader
 // method of the ResponseWriter is called only once during the lifecycle

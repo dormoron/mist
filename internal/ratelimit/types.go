@@ -1,25 +1,21 @@
 package ratelimit
 
 import (
-	"github.com/dormoron/mist"
+	"context"
 )
 
-// Limiter is an interface designed to abstract the rate-limiting logic.
-// It confirms whether a particular action exceeds a predefined rate limit.
-// Implementations of this interface can enforce rate limits in different ways,
-// such as using a sliding window algorithm, token bucket, or any other strategy.
-// Method: Limit
-// The Limit method is responsible for determining if the given key has exceeded
-// its allowable number of requests within a given time frame.
-//
-// Params:
-//   - ctx: A pointer to a mist.Context object, which transports request-scoped values,
-//     cancellation signals, deadlines, and other information across API boundaries.
-//   - key: A string acting as the unique identifier to which the rate limit should be applied.
-//
-// Returns:
-//   - A boolean indicating whether the request is within the rate limits (`true` if it's within limit, `false` if it exceeds).
-//   - An error object that will be non-nil if an error occurs during the check (e.g., database or network issues).
+// Limiter is an interface that defines a rate limiting method.
 type Limiter interface {
-	Limit(ctx *mist.Context, key string) (bool, error)
+	// Limit restricts the request rate based on the provided context and key.
+	//
+	// Parameters:
+	//     ctx (context.Context): The context for the request, which is used to control the lifecycle of the request.
+	//                            It can convey deadlines, cancellations signals, and other request-scoped values across API boundaries and goroutines.
+	//     key (string): A unique string that identifies the request or resource to be limited.
+	//                   This key is typically derived from the user's ID, IP address, or other identifying information.
+	//
+	// Returns:
+	//     (bool, error): Returns a boolean indicating whether the request is allowed (true) or rate-limited (false).
+	//                    If an error occurs during the process, it returns a non-nil error value.
+	Limit(ctx context.Context, key string) (bool, error)
 }
