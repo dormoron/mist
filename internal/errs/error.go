@@ -6,6 +6,9 @@ import (
 )
 
 var (
+	// base
+	errInvalidType = errors.New("base: type conversion failed, expected type")
+	// web
 	errKeyNotFound        = errors.New("session: key not found")
 	errSessionNotFound    = errors.New("session: session not found")
 	errIdSessionNotFound  = errors.New("session: session corresponding to id does not exist")
@@ -34,6 +37,10 @@ var (
 	errRouterConflict                     = errors.New("web: route conflict")
 	errRouterNotSymbolic                  = errors.New("web: illegal route. Routes like //a/b, /a//b etc. are not allowed")
 )
+
+func ErrInvalidType(want string, got any) error {
+	return fmt.Errorf("%w :%s, actual value:%#v", errInvalidType, want, got)
+}
 
 func ErrKeyNotFound(key string) error {
 	return fmt.Errorf("%w, key %s", errKeyNotFound, key)

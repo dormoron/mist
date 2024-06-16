@@ -22,7 +22,7 @@ import (
 //     a common practice is to prepend "sess:" to the actual session ID.
 //
 //   - client: An interface that represents the Redis command executor. It must satisfy
-//     the redis.Cmdable interface, which includes methods for executing commands
+//     the redisess.Cmdable interface, which includes methods for executing commands
 //     like GET, SET, DELETE, etc., used for session management operations.
 //     This abstraction allows the Store to interact with Redis without depending
 //     on a specific Redis client implementation, making the Store more flexible
@@ -47,7 +47,7 @@ import (
 //
 // Example initialization:
 //
-//	rdb := redis.NewClient(&redis.Options{
+//	rdb := redisess.NewClient(&redisess.Options{
 //	    Addr:     "localhost:6379",
 //	    Password: "", // no password set
 //	    DB:       0,  // use default DB
@@ -107,7 +107,7 @@ type Store struct {
 //
 // // NewStore creates a new Store with the provided options applied.
 //
-//	func NewStore(client redis.Cmdable, opts ...StoreOptions) *Store {
+//	func NewStore(client redisess.Cmdable, opts ...StoreOptions) *Store {
 //	    store := &Store{client: client}
 //	    for _, opt := range opts {
 //	        opt(store)
@@ -126,7 +126,7 @@ type StoreOptions func(store *Store) // A function type to configure and modify 
 //
 // Parameters:
 //
-//   - client: An instance of redis.Cmdable which provides the interface for executing commands against the Redis server.
+//   - client: An instance of redisess.Cmdable which provides the interface for executing commands against the Redis server.
 //     It is a required parameter as it establishes the necessary connection for the Store to interact with Redis.
 //
 //   - opts: A variadic slice of StoreOptions, which are optional configuration functions. Each StoreOptions function can
@@ -148,7 +148,7 @@ type StoreOptions func(store *Store) // A function type to configure and modify 
 //
 // // Create a Redis client.
 //
-//	redisClient := redis.NewClient(&redis.Options{
+//	redisClient := redisess.NewClient(&redisess.Options{
 //	    Addr:     "localhost:6379",
 //	    Password: "", // no password set
 //	    DB:       0,  // use the default DB
@@ -485,7 +485,7 @@ func (s *Store) Get(ctx context.Context, id string) (session.Session, error) {
 //   - key: A string that represents the constructed key used within the Redis store. The key is composed of a prefix (common to all
 //     sessions managed by the application) and the session's unique ID. This composition facilitates namespacing in the Redis
 //     store and avoids key collisions with other potential data stored in the same Redis instance.
-//   - client: An interface of type redis.Cmdable which provides a set of commands that are used to execute Redis commands
+//   - client: An interface of type redisess.Cmdable which provides a set of commands that are used to execute Redis commands
 //     against the session data. By storing the reference to the Redis client in the session struct, the session can
 //     directly perform actions on Redis, such as retrieving, updating, or deleting session-specific data.
 //
@@ -575,9 +575,9 @@ func (s *Session) Set(ctx context.Context, key string, value any) error {
 	// Lua script to be evaluated on the Redis server. The script checks if a hash exists
 	// and sets a key-value pair in the hash if it does.
 	const lua = `
-if redis.call("exists", KEYS[1])
+if redisess.call("exists", KEYS[1])
 then
-    return redis.call("hset", KEYS[1], ARGV[1], ARGV[2])
+    return redisess.call("hset", KEYS[1], ARGV[1], ARGV[2])
 else
     return -1
 end

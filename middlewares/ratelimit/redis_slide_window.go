@@ -14,9 +14,9 @@ import (
 //
 // Parameters:
 //
-//	cmd (redis.Cmdable): The Redis client or connection that supports the required Redis commands.
-//	                     This can be any type that implements the redis.Cmdable interface, such as
-//	                     *redis.Client or *redis.ClusterClient.
+//	cmd (redisess.Cmdable): The Redis client or connection that supports the required Redis commands.
+//	                     This can be any type that implements the redisess.Cmdable interface, such as
+//	                     *redisess.Client or *redisess.ClusterClient.
 //	interval (time.Duration): The time duration representing the size of the sliding window.
 //	                          This determines the period over which the rate is calculated.
 //	rate (int): The maximum number of requests allowed within the specified interval.

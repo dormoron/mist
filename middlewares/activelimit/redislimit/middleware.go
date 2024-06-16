@@ -20,7 +20,7 @@ import (
 //   - key: A string value that serves as an identifier for the middleware instance.
 //     The key can be used to uniquely identify and differentiate between multiple middleware configurations,
 //     particularly when interfacing with external systems like Redis for storing and retrieving state information.
-//   - cmd: An interface of type redis.Cmdable provided by the go-redis package. This interface allows the
+//   - cmd: An interface of type redis.Cmdable provided by the go-redisess package. This interface allows the
 //     MiddlewareBuilder to execute Redis commands. It's a flexible way to interact with Redis, enabling
 //     operations such as setting rate limits or counting requests, thus integrating seamlessly with Redis
 //     to manage application data or state.
@@ -164,7 +164,7 @@ func (b *MiddlewareBuilder) Build() mist.Middleware {
 			currentCount, err := b.cmd.Incr(ctx.Request.Context(), b.key).Result()
 			if err != nil {
 				// Log and abort the request if there is an error incrementing the Redis counter.
-				b.logFn("error incrementing redis counter", err)
+				b.logFn("error incrementing redisess counter", err)
 				ctx.AbortWithStatus(http.StatusInternalServerError)
 				return
 			}
@@ -173,7 +173,7 @@ func (b *MiddlewareBuilder) Build() mist.Middleware {
 			defer func() {
 				if err = b.cmd.Decr(ctx.Request.Context(), b.key).Err(); err != nil {
 					// Log if there is an error decrementing the Redis counter.
-					b.logFn("error decrementing redis counter", err)
+					b.logFn("error decrementing redisess counter", err)
 				}
 			}()
 

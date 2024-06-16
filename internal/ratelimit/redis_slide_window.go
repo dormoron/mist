@@ -20,7 +20,7 @@ var luaSlideWindow string
 // RedisSlidingWindowLimiter struct is a structure in Go which represents a rate limiter using sliding window algorithm.
 type RedisSlidingWindowLimiter struct {
 
-	// Cmd is an interface from the go-redis package (redis.Cmdable).
+	// Cmd is an interface from the go-redisess package (redis.Cmdable).
 	// This interface includes methods for all Redis commands to execute queries.
 	// Using an interface here instead of a specific type makes the limiter more flexible,
 	// as it can accept any type that implements the `redis.Cmdable` interface, such as a Redis client or a Redis Cluster client.
