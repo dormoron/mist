@@ -129,7 +129,7 @@ type Session interface {
 // The Propagator interface defines methods responsible for managing the propagation
 // of session identifiers across HTTP requests and responses in a web application.
 // This interface abstracts the operations of adding, retrieving, and deleting a session
-// identifier (such as a cookie or a token) to and from HTTP requests and responses, thereby allowing
+// identifier (such as a cookie or a auth) to and from HTTP requests and responses, thereby allowing
 // session tracking and management universally across different systems and components.
 // Methods:
 //   - Inject(id string, writer http.ResponseWriter) error: Inserts a session identifier 'id' into

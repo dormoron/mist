@@ -6,53 +6,95 @@ import (
 	"github.com/dormoron/mist/internal/errs"
 )
 
-// Session 混合了 JWT 的设计。
+// Session interface defines multiple methods for session management.
 type Session interface {
-	// Set 将数据写入到 Session 里面
+	// Set assigns a value to a session key. The context is typically used for request-scoped values.
+	// Parameters:
+	// - ctx: context for managing deadlines, cancel operation signals, and other request-scoped values ('context.Context')
+	// - key: the key under which the value is stored ('string')
+	// - val: the value to store, which can be of any type ('any')
+	// Returns:
+	// - error: error, if any occurred while setting the value
 	Set(ctx context.Context, key string, val any) error
-	// Get 从 Session 中获取数据，注意，这个方法不会从 JWT 里面获取数据
+
+	// Get retrieves the value associated with the key from the session.
+	// Parameters:
+	// - ctx: context for managing deadlines, cancel operation signals, and other request-scoped values ('context.Context')
+	// - key: the key for the value to be retrieved ('string')
+	// Returns:
+	// - mist.AnyValue: a wrapper containing the retrieved value or an error if the key wasn't found
 	Get(ctx context.Context, key string) mist.AnyValue
-	// Del 删除对应的数据
+
+	// Del deletes the key-value pair associated with the key from the session.
+	// Parameters:
+	// - ctx: context for managing deadlines, cancel operation signals, and other request-scoped values ('context.Context')
+	// - key: the key for the value to be deleted ('string')
+	// Returns:
+	// - error: error, if any occurred while deleting the value
 	Del(ctx context.Context, key string) error
-	// Destroy 销毁整个 Session
+
+	// Destroy invalidates the session entirely, clearing all data within the session.
+	// Parameters:
+	// - ctx: context for managing deadlines, cancel operation signals, and other request-scoped values ('context.Context')
+	// Returns:
+	// - error: error, if any occurred while destroying the session
 	Destroy(ctx context.Context) error
-	// Claims 编码进去了 JWT 里面的数据
+
+	// Claims retrieves the claims associated with the session. Claims usually contain user-related data, often in a JWT context.
+	// Returns:
+	// - Claims: a set of claims related to the session
 	Claims() Claims
 }
 
-// Provider 定义了 Session 的整个管理机制。
-// 所有的 Session 都必须支持 jwt
+// Provider interface defines methods for session lifecycle management and JWT claim updates.
 type Provider interface {
-	// NewSession 将会初始化 Session
-	// 其中 jwtData 将编码进去 jwt 中
-	// sessData 将被放进去 Session 中
-	NewSession(ctx *mist.Context, uid int64, jwtData map[string]string,
-		sessData map[string]any) (Session, error)
-	// Get 尝试拿到 Session，如果没有，返回 error
-	// Get 必须校验 Session 的合法性。
-	// 也就是，用户可以预期拿到的 Session 永远是没有过期，直接可用的
+	// InitSession initializes a new session with the specified user ID, JWT data, and session data.
+	// Parameters:
+	// - ctx: context for managing deadlines, cancel operation signals, and other request-scoped values ('mist.Context')
+	// - uid: user ID for which the session is being created ('int64')
+	// - jwtData: JWT token data (usually claims) to store with the session ('map[string]any')
+	// - sessData: additional session-specific data to associate with the session ('map[string]any')
+	// Returns:
+	// - Session: the initialized session
+	// - error: error, if any occurred while initializing the session
+	InitSession(ctx *mist.Context, uid int64, jwtData map[string]any, sessData map[string]any) (Session, error)
+
+	// Get retrieves the current session associated with the context.
+	// Parameters:
+	// - ctx: context for managing deadlines, cancel operation signals, and other request-scoped values ('mist.Context')
+	// Returns:
+	// - Session: the current session
+	// - error: error, if any occurred while retrieving the session
 	Get(ctx *mist.Context) (Session, error)
 
-	// UpdateClaims 修改 claims 的数据
-	// 但是因为 jwt 本身是不可变的，所以实际上这里是重新生成了一个 jwt 的 token
-	// 必须传入正确的 SSID
+	// UpdateClaims updates the claims associated with the current session.
+	// Parameters:
+	// - ctx: context for managing deadlines, cancel operation signals, and other request-scoped values ('mist.Context')
+	// - claims: a new set of claims to associate with the session ('Claims')
+	// Returns:
+	// - error: error, if any occurred while updating the claims
 	UpdateClaims(ctx *mist.Context, claims Claims) error
 
-	// RenewAccessToken 刷新并且返回一个新的 access token
-	// 这个过程会校验长 token 的合法性
+	// RenewAccessToken renews the access token associated with the session.
+	// Parameters:
+	// - ctx: context for managing deadlines, cancel operation signals, and other request-scoped values ('mist.Context')
+	// Returns:
+	// - error: error, if any occurred while renewing the access token
 	RenewAccessToken(ctx *mist.Context) error
 }
 
+// Claims structure holds the data associated with the session's JWT claims.
 type Claims struct {
-	Uid  int64
-	SSID string
-	Data map[string]string
+	Uid  int64          // User ID
+	SSID string         // Session ID
+	Data map[string]any // Additional data related to the claims
 }
 
+// Get retrieves the value associated with the key from the claims.
 func (c Claims) Get(key string) mist.AnyValue {
 	val, ok := c.Data[key]
 	if !ok {
-		return mist.AnyValue{Err: errs.ErrKeyNotFound(key)}
+		return mist.AnyValue{Err: errs.ErrKeyNotFound(key)} // Return an error if the key is not found
 	}
-	return mist.AnyValue{Val: val}
+	return mist.AnyValue{Val: val} // Return the value if the key is found
 }

@@ -2,7 +2,7 @@ package mist
 
 // Middleware represents a function type in Go that defines the structure of a middleware function.
 // In the context of web servers or other request-handling applications, middleware is used to process
-// requests before reaching the final request handler, allowing for pre-processing like authentication,
+// requests before reaching the final request handler, allowing for pre-processing like auth,
 // logging, or any other operation that should be performed before or after the main processing of a request.
 //
 // The type is defined as a function that takes one HandleFunc as its parameter (often referred to as 'next')

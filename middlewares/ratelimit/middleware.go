@@ -15,7 +15,7 @@ import (
 // Fields:
 //
 //   - limiter: This is an implementation of the Limiter interface, it controls how to check
-//     and handle rate limits (e.g., using a sliding window algorithm or token bucket strategy).
+//     and handle rate limits (e.g., using a sliding window algorithm or auth bucket strategy).
 //
 //   - keyFn: This is a function that generates a unique key for each request, based on the provided mist.Context.
 //     For example, in an HTTP context this may generate keys based on a client IP address or authenticated user ID.

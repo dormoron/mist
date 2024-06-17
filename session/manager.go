@@ -145,7 +145,7 @@ func (m *Manager) GetSession(ctx *mist.Context) (Session, error) {
 //
 // Usage:
 // This method should be called when a new user session needs to be initiated. Typically, it would be
-// invoked within the authentication process, or when a session is not found for a request and needs
+// invoked within the auth process, or when a session is not found for a request and needs
 // to be created.
 //
 // Example:
@@ -261,7 +261,7 @@ func (m *Manager) RefreshSession(ctx *mist.Context) error {
 //
 // Usage:
 // This method is called when a session needs to be unequivocally terminated, such as during a logout process.
-// It is often paired with authentication middleware or within an HTTP handler that processes logout requests.
+// It is often paired with auth middleware or within an HTTP handler that processes logout requests.
 //
 // Example usage within an HTTP handler:
 //

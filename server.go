@@ -104,7 +104,7 @@ type HTTPServerOption func(server *HTTPServer) // Functional option for configur
 //	                     the server will execute sequentially for each request.
 //	                     Middleware functions are used to intercept and manipulate
 //	                     requests and responses, allowing for tasks such as
-//	                     authentication, logging, and session management to be
+//	                     auth, logging, and session management to be
 //	                     handled in a modular fashion.
 //	log (Logger): The log field is an instance of the Logger interface. This
 //	              abstraction allows the server to utilize various logging
@@ -221,7 +221,7 @@ func (s *HTTPServer) Use(mils ...Middleware) {
 
 // UseRoute associates a new route with the specified HTTP method and path to the server's routing system.
 // Additionally, it allows for the chaining of middleware functions that can intercept and modify the
-// request or response, or perform specific actions like logging, authentication, etc., before the
+// request or response, or perform specific actions like logging, auth, etc., before the
 // request reaches the final handler function.
 //
 // Parameters:
@@ -289,7 +289,7 @@ func (s *HTTPServer) UseForAll(path string, mdls ...Middleware) {
 //     for the request handling pipeline.
 //  3. Iteratively wraps the root handler with the server's configured middleware in reverse order. Middleware is
 //     essentially a chain of functions that can execute before and/or after the main request handler to perform
-//     tasks such as logging, authentication, etc.
+//     tasks such as logging, auth, etc.
 //  4. Introduces a final middleware that calls the next handler in the chain and then flushes any buffered response
 //     using 's.flashResp'. This ensures that even if a response is buffered (for performance reasons or to allow
 //     for manipulations), it gets sent out after the request is processed.

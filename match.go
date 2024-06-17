@@ -16,7 +16,7 @@ package mist
 //     "userID" and "postID" if the incoming request path matched that pattern.
 //   - mils ([]Middleware): A slice of 'Middleware' functions that are meant to be executed for the matched route
 //     in the order they are included in the slice. Middleware functions are used to perform
-//     operations such as request logging, authentication, and input validation before the
+//     operations such as request logging, auth, and input validation before the
 //     request reaches the final handler function.
 //
 // Usage:

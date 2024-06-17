@@ -22,7 +22,7 @@ import (
 //   - middles: Slice of Middleware functions that are applied to all routes within this group.
 //     These middleware functions are executed in the order that they are added to
 //     this slice, prior to the route-specific handler being called. They can be used
-//     for logging, authentication, session management, etc.
+//     for logging, auth, session management, etc.
 type routerGroup struct {
 	prefix  string
 	parent  *routerGroup
@@ -101,14 +101,14 @@ func (g *routerGroup) calculateFullPath(path string) string {
 //     It contains the logic to service the GET request for that route.
 //
 //   - ms: Optional. A variadic sequence of Middleware functions that will be applied to this route.
-//     Middleware can perform various tasks such as logging, authentication, rate-limiting, etc.,
+//     Middleware can perform various tasks such as logging, auth, rate-limiting, etc.,
 //     and are executed in the order provided before the handler function upon a route match.
 //
 // Usage:
 // A GET route can be added to the routerGroup like this:
 // g.GET("/users", usersHandler, loggingMiddleware, authMiddleware)
 // This example would register a GET route at "/users" on the routerGroup's prefix, with both logging
-// and authentication middleware applied to the route, followed by the execution of usersHandler.
+// and auth middleware applied to the route, followed by the execution of usersHandler.
 func (g *routerGroup) GET(path string, handler HandleFunc, ms ...Middleware) {
 	// Calls the internal registerRoute method, providing the "GET" method
 	// along with the path, handler, and any middleware provided in the call.
@@ -133,7 +133,7 @@ func (g *routerGroup) GET(path string, handler HandleFunc, ms ...Middleware) {
 //     This function will handle the request logic specific to the route.
 //
 //   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
-//     before the handler is invoked. These functions can perform tasks such as logging, authentication,
+//     before the handler is invoked. These functions can perform tasks such as logging, auth,
 //     and input validation, among other pre-processing needs.
 //
 // By using this method, the router is informed about how to handle HEAD requests specifically for the
@@ -158,7 +158,7 @@ func (g *routerGroup) HEAD(path string, handler HandleFunc, ms ...Middleware) {
 // When a POST request is made to the registered path, the provided handler function is invoked to
 // process the request. The route can also have an associated sequence of middleware functions,
 // which are executed before the handler function in the order they were provided. Middleware may
-// handle concerns such as request logging, authentication, rate limiting, or other pre-processing tasks.
+// handle concerns such as request logging, auth, rate limiting, or other pre-processing tasks.
 //
 // Parameters:
 //
@@ -236,7 +236,7 @@ func (g *routerGroup) PUT(path string, handler HandleFunc, ms ...Middleware) {
 //
 // This operation binds the specified path with a handler function and an optional array of middleware
 // functions, which are executed in sequence before the request reaches the handler. Middleware functions
-// can handle tasks such as rate-limiting, input validation, and authentication. By using this method,
+// can handle tasks such as rate-limiting, input validation, and auth. By using this method,
 // routes can be assigned specific logic to effectively update parts of resources conditionally.
 //
 // Parameters:
@@ -310,7 +310,7 @@ func (g *routerGroup) DELETE(path string, handler HandleFunc, ms ...Middleware) 
 // This method is particularly useful in scenarios like establishing a Secure Sockets Layer (SSL) connection
 // over an HTTP proxy. The route is defined by associating the specified path with a handler function and an
 // optional slice of middleware functions. The middleware functions are designed to execute in sequence before
-// the handler function is invoked, allowing for preprocessing such as authentication and logging of the connection
+// the handler function is invoked, allowing for preprocessing such as auth and logging of the connection
 // requests.
 //
 // Parameters:

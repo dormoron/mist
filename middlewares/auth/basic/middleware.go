@@ -14,30 +14,30 @@ import (
 
 // MiddlewareBuilder is a struct that holds the configuration options for constructing a middleware.
 // This configuration will eventually be used to create an instance of a middleware that performs
-// actions like authentication checks on HTTP requests. The structure is set up in a way to be
+// actions like auth checks on HTTP requests. The structure is set up in a way to be
 // modified using MiddlewareOptions functions.
 type MiddlewareBuilder struct {
-	RequiredUserHash     []byte // Byte slice containing the hash of the user credential required for authentication.
-	RequiredPasswordHash []byte // Byte slice containing the hash of the password credential required for authentication.
-	Realm                string // The 'realm' is a string to be displayed to the user when authentication is required.
+	RequiredUserHash     []byte // Byte slice containing the hash of the user credential required for auth.
+	RequiredPasswordHash []byte // Byte slice containing the hash of the password credential required for auth.
+	Realm                string // The 'realm' is a string to be displayed to the user when auth is required.
 	// It is part of the HTTP Basic Authentication standard, to give the user a context or
 	// description of what area or resource the credentials will grant access to.
 	Paths []*regexp.Regexp // A slice of pointer to regular expressions. Each pattern in this slice will be used
 	// to match request paths that the middleware should protect. Only requests to paths
-	// that match any of these patterns will be subject to authentication checks.
+	// that match any of these patterns will be subject to auth checks.
 	IsHTTPS bool // A boolean flag indicating whether the middleware should force the use of HTTPS.
 	// If this flag is set to true, the middleware will only allow requests made over
 	// HTTPS and will reject any HTTP connections.
 }
 
 // InitMiddlewareBuilder is a function that initializes a new MiddlewareBuilder with hashed credentials and other provided options.
-// It takes the required username and password for authentication, a realm for the authentication prompt, and an optional list
+// It takes the required username and password for auth, a realm for the auth prompt, and an optional list
 // of MiddlewareOptions functions to further customize the builder.
 //
 // Parameters:
-//   - requiredUser: The username that will be required for authentication. It will be hashed and stored in the builder.
-//   - requiredPassword: The password that will be required for authentication. It will also be hashed and stored.
-//   - realm: A description or name for the protected area used in the authentication prompt to inform the user.
+//   - requiredUser: The username that will be required for auth. It will be hashed and stored in the builder.
+//   - requiredPassword: The password that will be required for auth. It will also be hashed and stored.
+//   - realm: A description or name for the protected area used in the auth prompt to inform the user.
 //
 // Returns:
 // - A pointer to an initialized MiddlewareBuilder containing the hashed credentials and applied options.
@@ -113,7 +113,7 @@ func (m *MiddlewareBuilder) IgnorePaths(pathPatterns []string) *MiddlewareBuilde
 // Build is a method of the MiddlewareBuilder struct that constructs a Middleware function
 // that can be used to perform Basic Authentication on incoming HTTP requests.
 // The function checks if a request's path matches any provided patterns, if the request was made using HTTPS,
-// and if the provided authentication credentials are valid before allowing the request to continue.
+// and if the provided auth credentials are valid before allowing the request to continue.
 //
 // Returns:
 // - a Middleware function that performs Basic Authentication and can be used in a middleware chain in a mist server.
@@ -204,7 +204,7 @@ func checkCredentials(m *MiddlewareBuilder, givenUser, givenPassword string) boo
 // - Nothing. The function's purpose is to send a response, not to return anything.
 func unauthorized(w http.ResponseWriter, realm string) {
 	// Set the 'WWW-Authenticate' header of the response. This header defines the
-	// authentication method that should be used to gain access to a resource.
+	// auth method that should be used to gain access to a resource.
 	w.Header().Set("WWW-Authenticate", `Basic realm="`+realm+`"`)
 
 	// Set the status of the response. StatusUnauthorized (401) implies that
@@ -219,7 +219,7 @@ func unauthorized(w http.ResponseWriter, realm string) {
 }
 
 // parseBasicAuth is a helper function to parse the 'Authorization' header of an incoming HTTP request
-// when the 'Basic' scheme is used for HTTP authentication. It expects the 'auth' parameter
+// when the 'Basic' scheme is used for HTTP auth. It expects the 'auth' parameter
 // to contain the 'Authorization' header from an HTTP request.
 //
 // Parameters:
