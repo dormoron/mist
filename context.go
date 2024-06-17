@@ -32,8 +32,13 @@ type Context struct {
 	// in this map for the path "/users/123".
 	PathParams map[string]string
 
+	// Keys is a map for storing arbitrary data that can be shared across different
+	// parts of the application during the request lifecycle. It is useful for setting
+	// and getting values that are pertinent to the current HTTP request.
 	Keys map[string]any
 
+	// mutex is a read-write mutex to synchronize access to the Keys map, ensuring
+	// thread-safety in concurrent environments.
 	mutex sync.RWMutex
 
 	// queryValues are all the URL query parameter values extracted from the
@@ -72,6 +77,8 @@ type Context struct {
 	// are not written more than once.
 	headerWritten bool
 
+	// Aborted is a flag indicating whether the request handling should be stopped.
+	// If true, handlers should terminate further processing immediately.
 	Aborted bool
 }
 
@@ -241,26 +248,44 @@ func (c *Context) SetCookie(ck *http.Cookie) {
 	http.SetCookie(c.ResponseWriter, ck)
 }
 
+// RemoteIP extracts the remote IP address from the context's request.
+// It uses the RemoteAddr field from the request, which typically contains both the IP address and port.
+// This method extracts and returns just the IP address part.
+// Returns:
+// - string: The remote IP address, or an empty string if extraction fails.
 func (c *Context) RemoteIP() string {
 	ip, _, err := net.SplitHostPort(strings.TrimSpace(c.Request.RemoteAddr))
+	// Split the remote address into host and port.
 	if err != nil {
-		return ""
+		return "" // Return an empty string if there's an error during the split.
 	}
-	return ip
+	return ip // Return the extracted IP address.
 }
 
+// ClientIP attempts to determine the client's IP address from the request headers in the following order:
+// 1. X-Forwarded-For header (a common header used in proxy setups).
+// 2. X-Real-IP header (another header used in some proxy setups).
+// 3. If neither of the above headers are present, it falls back to the remote IP address derived from the RemoteAddr field.
+// Returns:
+// - string: The determined client IP address.
 func (c *Context) ClientIP() string {
+	// Check the X-Forwarded-For header first (contains a comma-separated list of IP addresses).
 	xForwardedFor := c.Request.Header.Get("X-Forwarded-For")
 	if xForwardedFor != "" {
+		// Extract the first IP address from the list and return it.
 		ip := strings.TrimSpace(strings.Split(xForwardedFor, ",")[0])
 		if ip != "" {
-			return ip
+			return ip // Return the first IP address from the X-Forwarded-For header if present and non-empty.
 		}
 	}
+
+	// Check the X-Real-IP header next.
 	xRealIP := c.Request.Header.Get("X-Real-IP")
 	if xRealIP != "" {
-		return strings.TrimSpace(xRealIP)
+		return strings.TrimSpace(xRealIP) // Return the IP address from the X-Real-IP header if present.
 	}
+
+	// If neither header is present, fall back to the remote IP address.
 	return c.RemoteIP()
 }
 
@@ -686,93 +711,158 @@ func (c *Context) MustGet(key string) any {
 	panic("Key \"" + key + "\" does not exist")
 }
 
+// GetString retrieves a string value associated with the given key from the context.
+// Parameters:
+// - key: The key to retrieve the value for (string).
+// Returns:
+// - string: The string value associated with the key, or an empty string if the key does not exist or is not a string.
 func (c *Context) GetString(key string) (s string) {
 	if val, ok := c.Get(key); ok && val != nil {
-		s, _ = val.(string)
+		s, _ = val.(string) // Type assert the value to a string.
 	}
 	return
 }
 
+// GetBool retrieves a boolean value associated with the given key from the context.
+// Parameters:
+// - key: The key to retrieve the value for (string).
+// Returns:
+// - bool: The boolean value associated with the key, or false if the key does not exist or is not a boolean.
 func (c *Context) GetBool(key string) (b bool) {
 	if val, ok := c.Get(key); ok && val != nil {
-		b, _ = val.(bool)
+		b, _ = val.(bool) // Type assert the value to a boolean.
 	}
 	return
 }
 
+// GetInt retrieves an integer value associated with the given key from the context.
+// Parameters:
+// - key: The key to retrieve the value for (string).
+// Returns:
+// - int: The integer value associated with the key, or 0 if the key does not exist or is not an integer.
 func (c *Context) GetInt(key string) (i int) {
 	if val, ok := c.Get(key); ok && val != nil {
-		i, _ = val.(int)
+		i, _ = val.(int) // Type assert the value to an integer.
 	}
 	return
 }
 
+// GetInt64 retrieves an int64 value associated with the given key from the context.
+// Parameters:
+// - key: The key to retrieve the value for (string).
+// Returns:
+// - int64: The int64 value associated with the key, or 0 if the key does not exist or is not an int64.
 func (c *Context) GetInt64(key string) (i64 int64) {
 	if val, ok := c.Get(key); ok && val != nil {
-		i64, _ = val.(int64)
+		i64, _ = val.(int64) // Type assert the value to an int64.
 	}
 	return
 }
 
+// GetUint retrieves an unsigned integer value associated with the given key from the context.
+// Parameters:
+// - key: The key to retrieve the value for (string).
+// Returns:
+// - uint: The unsigned integer value associated with the key, or 0 if the key does not exist or is not an unsigned integer.
 func (c *Context) GetUint(key string) (ui uint) {
 	if val, ok := c.Get(key); ok && val != nil {
-		ui, _ = val.(uint)
+		ui, _ = val.(uint) // Type assert the value to an unsigned integer.
 	}
 	return
 }
 
+// GetUint64 retrieves a uint64 value associated with the given key from the context.
+// Parameters:
+// - key: The key to retrieve the value for (string).
+// Returns:
+// - uint64: The uint64 value associated with the key, or 0 if the key does not exist or is not a uint64.
 func (c *Context) GetUint64(key string) (ui64 uint64) {
 	if val, ok := c.Get(key); ok && val != nil {
-		ui64, _ = val.(uint64)
+		ui64, _ = val.(uint64) // Type assert the value to a uint64.
 	}
 	return
 }
 
+// GetFloat64 retrieves a float64 value associated with the given key from the context.
+// Parameters:
+// - key: The key to retrieve the value for (string).
+// Returns:
+// - float64: The float64 value associated with the key, or 0 if the key does not exist or is not a float64.
 func (c *Context) GetFloat64(key string) (f64 float64) {
 	if val, ok := c.Get(key); ok && val != nil {
-		f64, _ = val.(float64)
+		f64, _ = val.(float64) // Type assert the value to a float64.
 	}
 	return
 }
 
+// GetTime retrieves a time.Time value associated with the given key from the context.
+// Parameters:
+// - key: The key to retrieve the value for (string).
+// Returns:
+// - time.Time: The time.Time value associated with the key, or the zero value of time.Time if the key does not exist or is not a time.Time.
 func (c *Context) GetTime(key string) (t time.Time) {
 	if val, ok := c.Get(key); ok && val != nil {
-		t, _ = val.(time.Time)
+		t, _ = val.(time.Time) // Type assert the value to a time.Time.
 	}
 	return
 }
 
+// GetDuration retrieves a time.Duration value associated with the given key from the context.
+// Parameters:
+// - key: The key to retrieve the value for (string).
+// Returns:
+// - time.Duration: The time.Duration value associated with the key, or 0 if the key does not exist or is not a time.Duration.
 func (c *Context) GetDuration(key string) (d time.Duration) {
 	if val, ok := c.Get(key); ok && val != nil {
-		d, _ = val.(time.Duration)
+		d, _ = val.(time.Duration) // Type assert the value to a time.Duration.
 	}
 	return
 }
 
+// GetStringSlice retrieves a slice of strings associated with the given key from the context.
+// Parameters:
+// - key: The key to retrieve the value for (string).
+// Returns:
+// - []string: The slice of strings associated with the key, or nil if the key does not exist or is not a slice of strings.
 func (c *Context) GetStringSlice(key string) (ss []string) {
 	if val, ok := c.Get(key); ok && val != nil {
-		ss, _ = val.([]string)
+		ss, _ = val.([]string) // Type assert the value to a slice of strings.
 	}
 	return
 }
 
+// GetStringMap retrieves a map with string keys and any type values associated with the given key from the context.
+// Parameters:
+// - key: The key to retrieve the value for (string).
+// Returns:
+// - map[string]any: The map associated with the key, or nil if the key does not exist or is not a map.
 func (c *Context) GetStringMap(key string) (sm map[string]any) {
 	if val, ok := c.Get(key); ok && val != nil {
-		sm, _ = val.(map[string]any)
+		sm, _ = val.(map[string]any) // Type assert the value to a map with string keys and any type values.
 	}
 	return
 }
 
+// GetStringMapString retrieves a map with string keys and string values associated with the given key from the context.
+// Parameters:
+// - key: The key to retrieve the value for (string).
+// Returns:
+// - map[string]string: The map associated with the key, or nil if the key does not exist or is not a map with string values.
 func (c *Context) GetStringMapString(key string) (sms map[string]string) {
 	if val, ok := c.Get(key); ok && val != nil {
-		sms, _ = val.(map[string]string)
+		sms, _ = val.(map[string]string) // Type assert the value to a map with string keys and string values.
 	}
 	return
 }
 
+// GetStringMapStringSlice retrieves a map with string keys and slice of string values associated with the given key from the context.
+// Parameters:
+// - key: The key to retrieve the value for (string).
+// Returns:
+// - map[string][]string: The map associated with the key, or nil if the key does not exist or is not a map with slice of string values.
 func (c *Context) GetStringMapStringSlice(key string) (smss map[string][]string) {
 	if val, ok := c.Get(key); ok && val != nil {
-		smss, _ = val.(map[string][]string)
+		smss, _ = val.(map[string][]string) // Type assert the value to a map with string keys and slice of string values.
 	}
 	return
 }
