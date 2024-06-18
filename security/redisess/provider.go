@@ -27,6 +27,53 @@ type SessionProvider struct {
 	expiration  time.Duration                 // The expiration duration of the session.
 }
 
+// ClearToken is a method of the SessionProvider that clears the access and refresh tokens for a session.
+// This method will validate the refresh token from the request, and if valid, will remove the session
+// associated with the token from Redis and clear the token headers on the response.
+//
+// Parameters:
+//   - ctx: The mist.Context object representing the current HTTP request and response.
+//
+// Returns:
+//   - An error object if any step fails, otherwise it returns nil.
+func (rsp *SessionProvider) ClearToken(ctx *mist.Context) error {
+	// Extract the refresh token from the Authorization header in the request.
+	rt := rsp.extractTokenString(ctx)
+
+	// Verify the refresh token using the token manager.
+	// If the token is invalid or expired, an error is returned.
+	jwtClaims, err := rsp.m.VerifyRefreshToken(rt)
+	if err != nil {
+		return err
+	}
+
+	// Retrieve the claims data which includes user information and session ID.
+	claims := jwtClaims.Data
+
+	// Initialize a new Redis session using the session ID and expiration time from the claims.
+	sess := initRedisSession(claims.SSID, rsp.expiration, rsp.client, claims)
+
+	// Retrieve the stored refresh token from the Redis session for comparison.
+	storedToken := sess.Get(ctx, keyRefreshToken).StringOrDefault("")
+	// If the stored token does not match the provided token, return an error indicating an invalid or expired refresh token.
+	if storedToken != rt {
+		return errors.New("invalid or expired refresh token")
+	}
+
+	// Destroy the session in Redis, effectively clearing the stored refresh token.
+	err = sess.Destroy(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Clear the access token and refresh token headers in the HTTP response.
+	ctx.Header(rsp.atHeader, "")
+	ctx.Header(rsp.rtHeader, "")
+
+	// Return nil to indicate the operation was successful.
+	return nil
+}
+
 // UpdateClaims updates the JWT claims and sets new access and refresh tokens in the response headers.
 // Parameters:
 // - ctx: The context for the request (*mist.Context).

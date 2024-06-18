@@ -72,6 +72,21 @@ func RenewAccessToken(ctx *mist.Context) error {
 	return defaultProvider.RenewAccessToken(ctx)
 }
 
+// ClearToken is a function that serves as a wrapper to invoke the ClearToken method
+// of the defaultProvider. It clears the access and refresh tokens for a session by leveraging
+// the default session provider.
+//
+// Parameters:
+//   - ctx: The mist.Context object representing the current HTTP request and response.
+//
+// Returns:
+//   - An error object if the underlying ClearToken method in defaultProvider fails, otherwise it returns nil.
+func ClearToken(ctx *mist.Context) error {
+	// Call the ClearToken method on the defaultProvider, passing in the context of the current HTTP request and response.
+	// This delegates the task of clearing the session tokens to the defaultProvider.
+	return defaultProvider.ClearToken(ctx)
+}
+
 // UpdateClaims updates the claims for the session associated with the given context.
 // Parameters:
 // - ctx: The request context (*mist.Context).

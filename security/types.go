@@ -81,6 +81,18 @@ type Provider interface {
 	// Returns:
 	// - error: error, if any occurred while renewing the access token
 	RenewAccessToken(ctx *mist.Context) error
+
+	// The ClearToken function is designed to remove or invalidate a security or session token associated with the given context.
+	//
+	// Parameters:
+	// ctx: A pointer to a mist.Context object, which holds contextual information for the function to operate within.
+	//      The mist.Context might include various details like user information, request scope, or environmental settings.
+	//
+	// Return:
+	// error: This function returns an error type. If the token clearing process fails for any reason (e.g., token doesn't exist,
+	//        network issues, permission issues), the function will return a non-nil error indicating what went wrong.
+	//        If the token clearing process is successful, it returns nil.
+	ClearToken(ctx *mist.Context) error
 }
 
 // Claims structure holds the data associated with the session's JWT claims.
