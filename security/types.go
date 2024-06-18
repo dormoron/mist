@@ -97,9 +97,9 @@ type Provider interface {
 
 // Claims structure holds the data associated with the session's JWT claims.
 type Claims struct {
-	Uid  int64          // User ID
-	SSID string         // Session ID
-	Data map[string]any // Additional data related to the claims
+	UserID    int64          // User ID
+	SessionID string         // Session ID
+	Data      map[string]any // Additional data related to the claims
 }
 
 // Get retrieves the value associated with the key from the claims.

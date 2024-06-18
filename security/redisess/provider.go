@@ -51,7 +51,7 @@ func (rsp *SessionProvider) ClearToken(ctx *mist.Context) error {
 	claims := jwtClaims.Data
 
 	// Initialize a new Redis session using the session ID and expiration time from the claims.
-	sess := initRedisSession(claims.SSID, rsp.expiration, rsp.client, claims)
+	sess := initRedisSession(claims.SessionID, rsp.expiration, rsp.client, claims)
 
 	// Retrieve the stored refresh token from the Redis session for comparison.
 	storedToken := sess.Get(ctx, keyRefreshToken).StringOrDefault("")
@@ -112,7 +112,7 @@ func (rsp *SessionProvider) RenewAccessToken(ctx *mist.Context) error {
 	}
 
 	claims := jwtClaims.Data
-	sess := initRedisSession(claims.SSID, rsp.expiration, rsp.client, claims)
+	sess := initRedisSession(claims.SessionID, rsp.expiration, rsp.client, claims)
 	oldToken := sess.Get(ctx, keyRefreshToken).StringOrDefault("")
 	_ = sess.Del(ctx, keyRefreshToken) // Delete the old refresh token.
 	if oldToken != rt {
@@ -142,19 +142,19 @@ func (rsp *SessionProvider) RenewAccessToken(ctx *mist.Context) error {
 // InitSession initializes a new session and sets initial JWT claims.
 // Parameters:
 // - ctx: The context for the request (*mist.Context).
-// - uid: The user ID for the session (int64).
+// - userId: The user ID for the session (int64).
 // - jwtData: JWT-related data to be included in the session (map[string]any).
 // - sessData: Additional session data (map[string]any).
 // Returns:
 // - security.Session: The newly created session.
 // - error: An error if the session creation fails.
 func (rsp *SessionProvider) InitSession(ctx *mist.Context,
-	uid int64,
+	userId int64,
 	jwtData map[string]any,
 	sessData map[string]any) (security.Session, error) {
 
-	ssid := uuid.New().String() // Generate a unique session ID.
-	claims := security.Claims{Uid: uid, SSID: ssid, Data: jwtData}
+	sessionId := uuid.New().String() // Generate a unique session ID.
+	claims := security.Claims{UserID: userId, SessionID: sessionId, Data: jwtData}
 
 	// Generate a new access token.
 	accessToken, err := rsp.m.GenerateAccessToken(claims)
@@ -173,11 +173,11 @@ func (rsp *SessionProvider) InitSession(ctx *mist.Context,
 	ctx.Header(rsp.atHeader, accessToken)
 
 	// Initialize the session with the new session ID, expiration time, Redis client, and claims.
-	res := initRedisSession(ssid, rsp.expiration, rsp.client, claims)
+	res := initRedisSession(sessionId, rsp.expiration, rsp.client, claims)
 	if sessData == nil {
 		sessData = make(map[string]any, 2)
 	}
-	sessData["uid"] = uid
+	sessData["UserID"] = userId
 	sessData[keyRefreshToken] = refreshToken
 
 	// Initialize the session data in Redis.
@@ -220,7 +220,7 @@ func (rsp *SessionProvider) Get(ctx *mist.Context) (security.Session, error) {
 	}
 
 	// Initialize a Redis session with the extracted claims.
-	res = initRedisSession(claims.Data.SSID, rsp.expiration, rsp.client, claims.Data)
+	res = initRedisSession(claims.Data.SessionID, rsp.expiration, rsp.client, claims.Data)
 	return res, nil
 }
 
