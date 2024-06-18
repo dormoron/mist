@@ -177,7 +177,7 @@ func (rsp *SessionProvider) InitSession(ctx *mist.Context,
 	if sessData == nil {
 		sessData = make(map[string]any, 2)
 	}
-	sessData["UserID"] = userId
+	sessData["uId"] = userId
 	sessData[keyRefreshToken] = refreshToken
 
 	// Initialize the session data in Redis.
