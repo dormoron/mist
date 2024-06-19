@@ -289,7 +289,7 @@ func (c *Context) ClientIP() string {
 	return c.RemoteIP()
 }
 
-// RespJSONOK sends a JSON response with an HTTP status code 200 (OK) to the client.
+// RespondSuccess sends a JSON response with an HTTP status code 200 (OK) to the client.
 // This is a convenience method that wraps around the more general 'RespJSON' method, abstracting the common case of responding with an OK status.
 //
 // Parameters:
@@ -325,11 +325,11 @@ func (c *Context) ClientIP() string {
 //
 // Note:
 // - This method should be called after all response headers and status codes are set, and before any calls to write body content directly, as it will write data to the body and set headers.
-func (c *Context) RespJSONOK(val any) error {
-	return c.RespJSON(http.StatusOK, val)
+func (c *Context) RespondSuccess(val any) error {
+	return c.RespondWithJSON(http.StatusOK, val)
 }
 
-// RespJSON sends a JSON-formatted response to the client with a specified HTTP status code.
+// RespondWithJSON sends a JSON-formatted response to the client with a specified HTTP status code.
 // It converts the provided value to JSON, sets the response headers, and writes the JSON data to the response.
 //
 // Parameters:
@@ -369,7 +369,7 @@ func (c *Context) RespJSONOK(val any) error {
 //   - It is important to note that once the 'WriteHeader' method is called, it's not possible to change the response status code
 //     or write any new headers. Also, care must be taken to ensure that 'RespJSON' is not called after the response body has started to be written
 //     by other means, as this would result in an HTTP protocol error.
-func (c *Context) RespJSON(status int, val any) error {
+func (c *Context) RespondWithJSON(status int, val any) error {
 	data, err := json.Marshal(val)
 	if err != nil {
 		return err
