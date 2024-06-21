@@ -216,19 +216,19 @@ type FileDownloader struct {
 func (f *FileDownloader) Handle() HandleFunc {
 	return func(ctx *Context) {
 		// Retrieve the requested file path from the query parameter.
-		req := ctx.QueryValue("file")
+		req, err := ctx.QueryValue("file").String()
 		// Check for errors in retrieving the query parameter.
-		if req.err != nil {
+		if err != nil {
 			ctx.RespStatusCode = http.StatusBadRequest
 			ctx.RespData = []byte("The destination file could not be found")
 			return
 		}
 		// Clean the requested file path to prevent directory traversal.
-		req.val = filepath.Clean(req.val)
+		req = filepath.Clean(req)
 		// Generate the full intended path by combining the request path with FileDownloader's Dir.
-		dst := filepath.Join(f.Dir, req.val)
+		dst := filepath.Join(f.Dir, req)
 		// Resolve the path to an absolute path and validate it.
-		dst, req.err = filepath.Abs(dst)
+		dst, err = filepath.Abs(dst)
 		// Ensure that the resolved path is within the allowed download directory.
 		if !strings.Contains(dst, f.Dir) {
 			ctx.RespStatusCode = http.StatusBadRequest
@@ -599,17 +599,17 @@ func StaticWithExtension(extMap map[string]string) StaticResourceHandlerOption {
 // This specifies that all requests to '/static/' should be handled by the Handle method of 'handler',
 // which will serve the files as static resources.
 func (s *StaticResourceHandler) Handle(ctx *Context) {
-	file := ctx.PathValue("file")
-	if file.err != nil {
+	file, err := ctx.PathValue("file").String()
+	if err != nil {
 		// Error handling: Bad request due to request path issues.
 		ctx.RespStatusCode = http.StatusBadRequest
 		ctx.RespData = []byte("Request path error")
 		return
 	}
-	dst := filepath.Join(s.dir, file.val)
+	dst := filepath.Join(s.dir, file)
 	ext := filepath.Ext(dst)[1:]
 	header := ctx.ResponseWriter.Header()
-	if data, ok := s.cache.Get(file.val); ok {
+	if data, ok := s.cache.Get(file); ok {
 		// Serve content from cache if available.
 		header.Set("Content-Type", s.extContentTypeMap[ext])
 		header.Set("Content-Length", strconv.Itoa(len(data.([]byte))))
@@ -628,7 +628,7 @@ func (s *StaticResourceHandler) Handle(ctx *Context) {
 
 	// Caching file data if it's within the maximum allowed size.
 	if len(data) <= s.maxSize {
-		s.cache.Add(file.val, data)
+		s.cache.Add(file, data)
 	}
 	// Serving the file content with the correct headers.
 	header.Set("Content-Type", s.extContentTypeMap[ext])
