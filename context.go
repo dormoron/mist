@@ -506,15 +506,15 @@ func (c *Context) BindJSONOpt(val any, useNumber bool, disableUnknown bool) erro
 //  1. It calls 'c.Request.ParseForm()' to parse the request body as a URL-encoded form. This is necessary to populate 'c.Request.Form' with the form data.
 //     This method also parses the query parameters from the URL, merging them into the form values. If parsing fails (for example, if the body can't be read,
 //     is too large, or if the content type is not application/x-www-form-urlencoded), an error is returned.
-//  2. If 'ParseForm()' returns an error, the function creates a 'StringValue' instance with an empty string for 'val' and the parsing error for 'err'.
-//     It then returns this 'StringValue' containing the error information.
+//  2. If 'ParseForm()' returns an error, the function creates a 'AnyValue' instance with an empty string for 'val' and the parsing error for 'err'.
+//     It then returns this 'AnyValue' containing the error information.
 //  3. If 'ParseForm()' succeeds, 'c.Request.FormValue(key)' is used to retrieve the first value for the specified key from the merged form data.
-//     A 'StringValue' instance is then returned with the retrieved value and 'nil' for the error.
+//     A 'AnyValue' instance is then returned with the retrieved value and 'nil' for the error.
 //
 // Return Value:
-//   - A 'StringValue' instance is always returned. This struct contains two fields:
-//     a. 'val' which is the string value retrieved from the form data.
-//     b. 'err' which captures any error that may have occurred during the parsing of the form data.
+//   - A 'AnyValue' instance is always returned. This struct contains two fields:
+//     a. 'Val' which is the any value retrieved from the form data.
+//     b. 'Err' which captures any error that may have occurred during the parsing of the form data.
 //
 // Usage:
 // - This method is intended to be used in HTTP handlers when you need to access form values sent in an HTTP request.
@@ -537,15 +537,15 @@ func (c *Context) BindJSONOpt(val any, useNumber bool, disableUnknown bool) erro
 //
 // Considerations:
 // - Ensure that the 'ParseForm' method is not called before any other method that might consume the request body, as the request body is typically read-only once.
-func (c *Context) FormValue(key string) StringValue {
+func (c *Context) FormValue(key string) AnyValue {
 	err := c.Request.ParseForm()
 	if err != nil {
-		return StringValue{
-			val: "",
-			err: err,
+		return AnyValue{
+			Val: nil,
+			Err: err,
 		}
 	}
-	return StringValue{val: c.Request.FormValue(key)}
+	return AnyValue{Val: c.Request.FormValue(key)}
 }
 
 // QueryValue retrieves the first value associated with the specified key from the URL query parameters of an HTTP request.
@@ -558,11 +558,11 @@ func (c *Context) FormValue(key string) StringValue {
 //     This method parses the raw query from the URL and returns a map of the query parameters.
 //  2. It looks for the given 'key' in 'c.queryValues' to see if it exists. The values are stored in a slice of strings because URL query parameters can have multiple values.
 //  3. If the key does not exist in the map, it implies that the parameter was not supplied in the query string.
-//     In this case, the function returns a 'StringValue' struct with an empty string for the 'val' field and an 'ErrKeyNil' error for the 'err' field.
-//  4. If the key is present, the function returns a 'StringValue' struct with the first value associated with the key and 'nil' for the 'err' field.
+//     In this case, the function returns a 'AnyValue' struct with an empty string for the 'val' field and an 'ErrKeyNil' error for the 'err' field.
+//  4. If the key is present, the function returns a 'AnyValue' struct with the first value associated with the key and 'nil' for the 'err' field.
 //
 // Return Value:
-//   - A 'StringValue' struct is always returned. It contains:
+//   - A 'AnyValue' struct is always returned. It contains:
 //     a. 'val', the value associated with the provided key from the query parameters.
 //     b. 'err', an error if the key is not found in the query parameters.
 //
@@ -586,19 +586,19 @@ func (c *Context) FormValue(key string) StringValue {
 //
 // Considerations:
 // - While handling query data, consider the URL's sensitivity and the possibility of multiple values. Always validate and clean data from URL queries to ensure security.
-func (c *Context) QueryValue(key string) StringValue {
+func (c *Context) QueryValue(key string) AnyValue {
 	if c.queryValues == nil {
 		c.queryValues = c.Request.URL.Query()
 	}
 
 	vals, ok := c.queryValues[key]
 	if !ok {
-		return StringValue{
-			val: "",
-			err: errs.ErrKeyNil(),
+		return AnyValue{
+			Val: nil,
+			Err: errs.ErrKeyNil(),
 		}
 	}
-	return StringValue{val: vals[0]}
+	return AnyValue{Val: vals[0]}
 }
 
 // PathValue retrieves a value from the path parameters of an HTTP request based on the given key.
@@ -611,13 +611,13 @@ func (c *Context) QueryValue(key string) StringValue {
 //  1. It checks if the map 'c.PathParams' contains the key provided in the method parameter.
 //     'c.PathParams' is expected to be populated with key-value pairs where keys correspond to path parameter names defined in the URL pattern, and
 //     values are the respective parameters extracted from the actual request URL.
-//  2. If the key is present in 'c.PathParams', it retrieves the corresponding value, wraps it in a 'StringValue' struct by setting the 'val' field to the retrieved
+//  2. If the key is present in 'c.PathParams', it retrieves the corresponding value, wraps it in a 'AnyValue' struct by setting the 'val' field to the retrieved
 //     value and 'err' field to nil, and then returns it.
-//  3. If the key is not found, it means the requested path parameter is not present in the request URL. In this case, the method returns a 'StringValue' struct
+//  3. If the key is not found, it means the requested path parameter is not present in the request URL. In this case, the method returns a 'AnyValue' struct
 //     with 'val' set to an empty string and 'err' set to an error instance that typically indicates the absence of the key.
 //
 // Return Value:
-//   - A 'StringValue' struct that contains the value associated with the provided key ('val') and an error field ('err').
+//   - A 'AnyValue' struct that contains the value associated with the provided key ('val') and an error field ('err').
 //     If the key is not present, the 'err' field contains an appropriate error while 'val' is an empty string.
 //
 // Usage:
@@ -641,15 +641,15 @@ func (c *Context) QueryValue(key string) StringValue {
 // Considerations:
 //   - When working with frameworks or routers that facilitate path parameter extraction, ensure the router is correctly configured to parse and store the path parameters
 //     before calling this method.
-func (c *Context) PathValue(key string) StringValue {
+func (c *Context) PathValue(key string) AnyValue {
 	val, ok := c.PathParams[key]
 	if !ok {
-		return StringValue{
-			val: "",
-			err: errs.ErrKeyNil(),
+		return AnyValue{
+			Val: nil,
+			Err: errs.ErrKeyNil(),
 		}
 	}
-	return StringValue{val: val}
+	return AnyValue{Val: val}
 }
 
 // Header sets or deletes a specific header in the HTTP response.
@@ -865,198 +865,4 @@ func (c *Context) GetStringMapStringSlice(key string) (smss map[string][]string)
 		smss, _ = val.(map[string][]string) // Type assert the value to a map with string keys and slice of string values.
 	}
 	return
-}
-
-// StringValue is a structure designed to encapsulate a string value and any associated error that may arise during the retrieval of the value.
-// It is commonly used in functions that perform operations which may fail, such as parsing, reading from a file, or extracting values from a request in web applications.
-// By combining both the value and the error in a single struct, it simplifies error handling and value passing between functions.
-//
-// Fields:
-//
-//   - 'val': This field holds the string value that is retrieved by the operation. For example, when extracting a value from a form or parsing a string, 'val' will hold the result.
-//     If the operation to retrieve the value fails (for instance, if a key doesn't exist or a parse error occurs), 'val' will typically be set to an empty string.
-//
-//   - 'err': This field is used to hold any error that occurred during the operation. The presence of a non-nil error typically indicates that something went wrong
-//     during the value retrieval process. It allows the caller to distinguish between a successful operation (where 'err' is nil) and unsuccessful ones (where 'err' is not nil).
-//     The specific error stored in 'err' can provide additional context about what went wrong, enabling the caller to take appropriate actions,
-//     such as logging the error or returning an error response in a web application.
-//
-// Usage:
-//   - The 'StringValue' struct is useful in scenarios where a function needs to return both a value and an error status, so the caller can easily handle errors and control flow.
-//     It is particularly helpful in HTTP handler functions where error handling is integral to the proper functioning of the server.
-//
-// Example:
-//   - Suppose there is a web server with a function that reads a configuration value labeled "timeout" from a file or an environment variable.
-//     If the retrieval is successful, 'val' will contain the timeout string, and 'err' will be nil. If the retrieval fails (for example, if the "timeout" label doesn't exist),
-//     then 'err' will contain the error message, and 'val' will be an empty string. This struct helps the caller response appropriately based on whether an error occurred or not.
-//
-// Considerations:
-//   - When using 'StringValue' in code, it is good practice to always check the 'err' field before using the 'val' field. This avoids any surprises from using invalid values.
-//   - The design of 'StringValue' is such that it obviates the need for functions to return separate values for the string retrieved and an error. Instead, both pieces of information
-//     can be returned together in a more streamlined manner.
-type StringValue struct {
-	val string // The string value retrieved from an operation
-	err error  // The error encountered during the retrieval of the string value, if any
-}
-
-// AsInt64 attempts to convert the value held in the StringValue struct to an int64 type.
-// This method is particularly useful when the string value is expected to hold a numeric value
-// that needs to be used in a context where integer types are required (e.g., calculations, database operations, etc.).
-//
-// This method performs a two-step process:
-//  1. It checks if the err field of the StringValue receiver is not nil, which implies that an error occurred
-//     in acquiring or processing the original string value. If an error is present, the method
-//     immediately returns 0 and the error, propagating the original error without attempting to convert the value.
-//  2. If there is no error associated with the string value (i.e., err is nil), the method
-//     attempts to parse the string as an int64 base 10 number with the strconv.ParseInt function. If the
-//     parsing succeeds, it returns the resulting int64 value and a nil error. If parsing fails, it returns 0 and
-//     the parsing error that occurred.
-//
-// Parameters:
-// - None. The method operates on the StringValue structs internal state.
-//
-// Return Value:
-//   - The first return value is the int64 result of the parsing operation. It is set to 0 if there is an error.
-//   - The second return value is the error encountered during the conversion process. It will contain
-//     any error that may have previously been present in the StringValue struct or any error that occurs
-//     during the parsing with strconv.ParseInt.
-//
-// Usage:
-//   - It is essential to always handle the error return value to ensure that the int64 conversion was successful.
-//     Do not use the numeric value if the error is non-nil, as it would be incorrect or undefined.
-//
-// Example:
-//
-//   - Suppose we have a StringValue struct that is created as the result of another function that reads
-//     a stringifies integer from user input or external data source:
-//
-//     value := otherFunctionThatReturnsStringValue()
-//     number, err := value.AsInt64()
-//     if err != nil {
-//     // handle the error (e.g., log the error or inform the user of a bad input)
-//     } else {
-//     // use the number for further processing
-//     }
-//
-// Considerations:
-//   - This method allows for a clean and efficient interpretation of string data when an integer is expected.
-//     Doing so can simplify error handling by centralizing the conversion logic and error checking.
-//   - The strconv.ParseInt function is configured to interpret the string as a base 10 integer within the int64 range.
-//     This corresponds to the range of -9223372036854775808 to 9223372036854775807.
-//   - Make sure that the source string is appropriately validated or sanitized if coming from an untrusted source
-//     before attempting the conversion to mitigate any risks such as injection attacks or data corruption.
-func (s *StringValue) AsInt64() (int64, error) {
-	if s.err != nil {
-		return 0, s.err // If there's an existing error, return it without conversion
-	}
-	// Attempt to convert the string to an int64. strconv.ParseInt returns the converted
-	// int64 value and an error if the conversion fails.
-	return strconv.ParseInt(s.val, 10, 64)
-}
-
-// AsUint64 attempts to convert the string value within the StringValue struct to an uint64 type.
-// This method is crucial when the string is expected to represent an unsigned numeric value
-// that must be processed in environments or calculations that specifically require unsigned integers.
-//
-// The method involves the following steps:
-//  1. First, it verifies whether the 'err' field in the StringValue struct is not nil, indicating an error was encountered
-//     during the prior retrieval or conversion of the string value. Should an error be present, the method exits early,
-//     returning 0 for the numeric value and passing the error forward.
-//  2. If the 'err' field is nil, signaling no previous error, the method proceeds to parse the string value to an uint64
-//     using the strconv.ParseUint function. This function is instructed to interpret the string value as a base 10 number.
-//     The second argument (10) specifies the number base (decimal in this case), and the third argument (64) specifies that
-//     the conversion should fit into a 64-bit unsigned integer format.
-//  3. If the conversion is successful, the method outputs the parsed uint64 value and a nil error. If the conversion fails
-//     (e.g., if the string contains non-numeric characters or represents a number outside the uint64 range), it instead
-//     returns 0 and the error produced by strconv.ParseUint.
-//
-// Parameters:
-// - There are no parameters taken by this method, as it operates on the 'StringValue' struct instance it is called upon.
-//
-// Return Value:
-// - An uint64 type value representing the converted string if successful.
-// - An error indicating the conversion failed or an error was present already in the StringValue struct's 'err' field.
-//
-// Usage:
-//   - The caller should always evaluate the error returned by this function before utilizing the numeric value,
-//     to ensure the conversion occurred correctly and the result is valid and reliable for further use.
-//
-// Example:
-// - Imagine a situation where the 'StringValue' instance 'numericString' was created by parsing a user-provided configuration value:
-//
-//	numericString := GetStringFromConfig("max_users")
-//	maxValue, err := numericString.AsUint64()
-//	if err != nil {
-//	    // Handle the error appropriately (e.g., fallback to default value, logging, or user notification)
-//	} else {
-//	    // The maxValue is now safe to use for setting the maximum users allowed
-//	}
-//
-// Considerations:
-//   - This method assists in preventing the proliferation of error handling logic scattered throughout codebases by encapsulating
-//     both the value and potential errors within a single, self-contained struct.
-//   - The uint64 data type can represent integers from 0 to 18,446,744,073,709,551,615. Ensure the source string is meant to fit within this range.
-//   - Additional validation might be required for the initial string value if it comes from external or user inputs to prevent errors during conversion.
-func (s *StringValue) AsUint64() (uint64, error) {
-	if s.err != nil {
-		return 0, s.err // Propagate any pre-existing error without attempting conversion.
-	}
-	// Convert the string to an unsigned 64-bit integer, returning the result or any conversion error encountered.
-	return strconv.ParseUint(s.val, 10, 64)
-}
-
-// AsFloat64 converts the string value encapsulated within the StringValue struct to a float64 type.
-// This operation is essential in situations where the string value is expected to contain a floating-point
-// number that will be used in complex calculations or any context where precise decimal values are necessary,
-// such as financial computations or scientific measurements.
-//
-// The method follows a clear two-step conversion process:
-//
-//  1. It first checks for the presence of an error in the 'err' field of the StringValue struct. If an error is already
-//     associated with the value, the method precludes any conversion attempt and immediately returns a zero value (0.0)
-//     and the stored error, preserving the integrity of the error handling flow.
-//
-//  2. If no error is found (i.e., 'err' is nil), the method utilizes the strconv.ParseFloat function to attempt the
-//     conversion of the string value to a float64. The function parameter '64' specifies that the conversion should result
-//     in a floating-point number that adheres to a 64-bit IEEE 754 representation. This conversion is capable of handling
-//     both integer values and floating-point strings, including those with scientific notation.
-//
-//     If the conversion is conducted successfully, the parsed float64 value is returned alongside a nil error to indicate
-//     a successful operation. However, if strconv.ParseFloat encounters any issues—such as if the string contains characters
-//     inappropriate for a numeric value, or if the number is outside the range representable by a float64—the method will
-//     instead yield a zero value (0.0) with the corresponding error.
-//
-// Parameters:
-// - None. The method operates solely on the fields contained within the invoked StringValue struct instance.
-//
-// Return Values:
-// - A float64 value representing the successfully converted string or 0.0 in the event of an error.
-// - An error object that either carries an existing error from 'err' or a newly encountered error in conversion.
-//
-// Usage:
-//   - Users of this method should handle the returned error prior to using the numeric result to ensure that no
-//     conversion error has taken place and the result is indeed a valid and accurate floating-point number.
-//
-// Example:
-// - If a 'StringValue' instance named 'priceString' comes from a reliable function that parses a price value:
-//
-//	priceString := parsePriceValueFromInput()
-//	price, err := priceString.AsFloat64()
-//	if err != nil {
-//	    // Error handling logic such as logging the error or prompting the user to provide a valid numeric value.
-//	} else {
-//	    // The price variable is now appropriately typed as a float64 and ready for financial calculations.
-//	}
-//
-// Considerations:
-//   - The float64 type follows IEEE 754 standards and is the set choice for all floating-point operations within Go,
-//     offering a double-precision floating-point format which is fairly suited for a wide range of numerical tasks.
-//   - Ensure that the source string is supposed to represent a floating-point value and that it is formatted correctly.
-//     Proper validation or sanitization might be essential if the input is obtained from external or untrusted sources.
-func (s *StringValue) AsFloat64() (float64, error) {
-	if s.err != nil {
-		return 0, s.err // Forward any pre-existing error without trying to convert.
-	}
-	// Attempts to convert the string to a 64-bit floating-point number, communicating the outcome via the return values.
-	return strconv.ParseFloat(s.val, 64)
 }
