@@ -1,8 +1,9 @@
 package mist
 
 import (
-	"github.com/dormoron/mist/internal/errs"
 	"net/http"
+
+	"github.com/dormoron/mist/internal/errs"
 )
 
 // routerGroup represents a group of routes that share a common path prefix and optionally middleware.
@@ -77,8 +78,13 @@ func (g *routerGroup) registerRoute(method, path string, handler HandleFunc, ms 
 // Assuming we have a `routerGroup` with a prefix of "/api", calling `calculateFullPath("/users")`
 // will return "/api/users".
 func (g *routerGroup) calculateFullPath(path string) string {
-	// Validate that the path is not empty and starts with a forward slash '/'
-	if path == "" || path[0] != '/' {
+	// 空路径处理为根路径"/"
+	if path == "" {
+		return g.prefix
+	}
+
+	// Validate that the path starts with a forward slash '/'
+	if path[0] != '/' {
 		panic(errs.ErrRouterChildConflict()) // Panic with a predefined error if the path is invalid
 	}
 	// Concatenate the group's prefix with the provided path to form the full path
@@ -89,7 +95,7 @@ func (g *routerGroup) calculateFullPath(path string) string {
 // It is a convenience method that wraps the generic registerRoute method,
 // specifically setting the HTTP method to "GET". This makes it easier to set up
 // GET handlers for specific paths within the group. The GET method is typically used
-// for retrieving resources without changing the server’s state.
+// for retrieving resources without changing the server's state.
 //
 // Parameters:
 //
@@ -258,7 +264,7 @@ func (g *routerGroup) PUT(path string, handler HandleFunc, ms ...Middleware) {
 //
 // This will create a route at "/profile/avatar" that will handle PATCH requests to update a user's avatar.
 // Before the `updateAvatarHandler` is invoked, the middleware functions `authenticateUser` and
-// `logUserActivity` are applied, checking if the user is authenticated and logging the user’s activity,
+// `logUserActivity` are applied, checking if the user is authenticated and logging the user's activity,
 // respectively.
 func (g *routerGroup) PATCH(path string, handler HandleFunc, ms ...Middleware) {
 	g.registerRoute(http.MethodPatch, path, handler, ms...)

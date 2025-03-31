@@ -28,6 +28,7 @@ var (
 	errPathClash                          = errors.New("web: route conflict, parameter routes clash")
 	errRegularClash                       = errors.New("web: route conflict, regular routes clash")
 	errRegularExpression                  = errors.New("web: regular expression error")
+	errInvalidRegularFormat               = errors.New("web: invalid regular expression format")
 	errRouterNotString                    = errors.New("web: route is an empty string")
 	errRouterFront                        = errors.New("web: route must start with '/'")
 	errRouterBack                         = errors.New("web: route cannot end with '/'")
@@ -105,8 +106,13 @@ func ErrPathClash(pathParam string, path string) error {
 func ErrRegularClash(pathParam string, path string) error {
 	return fmt.Errorf("%w: existing regular route %s, attempting to register new %s", errRegularClash, pathParam, path)
 }
+
 func ErrRegularExpression(err error) error {
 	return fmt.Errorf("%w %w", errRegularExpression, err)
+}
+
+func ErrInvalidRegularFormat(path string) error {
+	return fmt.Errorf("%w [%s]", errInvalidRegularFormat, path)
 }
 
 func ErrRouterNotString() error {

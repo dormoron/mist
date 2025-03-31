@@ -1,9 +1,10 @@
 package mist
 
 import (
-	"github.com/dormoron/mist/internal/errs"
 	"regexp"
 	"strings"
+
+	"github.com/dormoron/mist/internal/errs"
 )
 
 // Enumeration of node types for structuring route segments within the routing tree. Each constant represents a
@@ -310,9 +311,28 @@ func (n *node) childOrCreate(path string) *node {
 		}
 		// Create a wildcard child node if one does not exist, initialize and store it for future retrievals.
 		if n.starChild == nil {
-			n.starChild = &node{path: path, typ: nodeTypeAny}
+			n.starChild = &node{
+				path:   path,
+				typ:    nodeTypeAny,
+				parent: n, // 设置父节点关系
+			}
 		}
 		return n.starChild // Return the wildcard child node.
+	}
+
+	// 支持{name:regex}格式的正则表达式 - 大括号格式
+	if len(path) > 3 && path[0] == '{' && strings.Contains(path, ":") {
+		closeBrace := strings.LastIndex(path, "}")
+		if closeBrace != -1 && closeBrace > 2 {
+			parts := strings.SplitN(path[1:closeBrace], ":", 2)
+			if len(parts) == 2 {
+				paramName := parts[0]
+				expr := parts[1]
+				return n.childOrCreateReg(path, expr, paramName)
+			}
+		}
+		// 如果格式不正确，抛出异常
+		panic(errs.ErrInvalidRegularFormat(path))
 	}
 
 	// Parameterized path handling: parses the parameter name and expression, and creates or retrieves
@@ -337,7 +357,11 @@ func (n *node) childOrCreate(path string) *node {
 	if !ok {
 		// If the child node does not exist already, create it, initialize it with the path and type,
 		// and add it to the children map.
-		child = &node{path: path, typ: nodeTypeStatic}
+		child = &node{
+			path:   path,
+			typ:    nodeTypeStatic,
+			parent: n, // 设置父节点关系
+		}
 		n.children[path] = child
 	}
 	return child // Return the static child node.
@@ -387,7 +411,12 @@ func (n *node) childOrCreateParam(path string, paramName string) *node {
 		}
 	} else {
 		// If no parameterized child exists, create one with the provided path and parameter name.
-		n.paramChild = &node{path: path, paramName: paramName, typ: nodeTypeParam}
+		n.paramChild = &node{
+			path:      path,
+			paramName: paramName,
+			typ:       nodeTypeParam,
+			parent:    n, // 设置父节点关系
+		}
 	}
 	// Return the existing or newly created parameterized child node.
 	return n.paramChild
@@ -432,7 +461,7 @@ func (n *node) childOrCreateReg(path string, expr string, paramName string) *nod
 	if n.regChild != nil {
 		// A routing definition clash occurs when the existing regChild's regular expression or parameter name
 		// does not match the new requirements. Panic with an error indicating this conflict.
-		if n.regChild.regExpr.String() != expr || n.paramName != paramName {
+		if (n.regChild.regExpr != nil && n.regChild.regExpr.String() != expr) || n.regChild.paramName != paramName {
 			panic(errs.ErrRegularClash(n.regChild.path, path))
 		}
 	} else {
@@ -442,7 +471,13 @@ func (n *node) childOrCreateReg(path string, expr string, paramName string) *nod
 			panic(errs.ErrRegularExpression(err))
 		}
 		// If successful, create a new regChild node with the compiled expression and other data, and assign it to the current node.
-		n.regChild = &node{path: path, paramName: paramName, regExpr: regExpr, typ: nodeTypeReg}
+		n.regChild = &node{
+			path:      path,
+			paramName: paramName,
+			regExpr:   regExpr,
+			typ:       nodeTypeReg,
+			parent:    n, // 设置父节点关系
+		}
 	}
 	// Return the existing or newly created regChild node.
 	return n.regChild

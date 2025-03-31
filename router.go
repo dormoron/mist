@@ -1,9 +1,17 @@
 package mist
 
 import (
-	"github.com/dormoron/mist/internal/errs"
 	"strings"
+	"sync"
+
+	"github.com/dormoron/mist/internal/errs"
 )
+
+// routeKey 是路由缓存的键结构
+type routeKey struct {
+	method string
+	path   string
+}
 
 // router is a data structure that is used to store and retrieve the routing information
 // of a web server or similar application which requires URL path segmentation and pattern matching.
@@ -55,6 +63,14 @@ import (
 //     should be considered and implemented according to the needs of the application.
 type router struct {
 	trees map[string]*node
+
+	// 路由缓存相关字段
+	routeCache    map[routeKey]*matchInfo
+	routeCacheMux sync.RWMutex
+	maxCacheSize  int
+	cacheHits     uint64
+	cacheMisses   uint64
+	cacheEnabled  bool
 }
 
 // initRouter is a factory function that initializes and returns a new instance of the 'router' struct.
@@ -96,8 +112,46 @@ type router struct {
 //     of the 'router' struct are satisfied, improving code readability and safety by centralizing router setup logic.
 func initRouter() router {
 	return router{
-		trees: map[string]*node{},
+		trees:        map[string]*node{},
+		routeCache:   make(map[routeKey]*matchInfo, 1024),
+		maxCacheSize: 10000, // 默认缓存大小
+		cacheEnabled: true,  // 默认启用缓存
 	}
+}
+
+// EnableCache 启用路由缓存
+func (r *router) EnableCache(maxSize int) {
+	r.routeCacheMux.Lock()
+	defer r.routeCacheMux.Unlock()
+
+	r.cacheEnabled = true
+	if maxSize > 0 {
+		r.maxCacheSize = maxSize
+	}
+}
+
+// DisableCache 禁用路由缓存
+func (r *router) DisableCache() {
+	r.routeCacheMux.Lock()
+	defer r.routeCacheMux.Unlock()
+
+	r.cacheEnabled = false
+	r.clearCache()
+}
+
+// ClearCache 清空路由缓存
+func (r *router) clearCache() {
+	r.routeCache = make(map[routeKey]*matchInfo, 1024)
+	r.cacheHits = 0
+	r.cacheMisses = 0
+}
+
+// CacheStats 返回缓存统计信息
+func (r *router) CacheStats() (hits, misses uint64, size int) {
+	r.routeCacheMux.RLock()
+	defer r.routeCacheMux.RUnlock()
+
+	return r.cacheHits, r.cacheMisses, len(r.routeCache)
 }
 
 // Group creates and returns a new routerGroup attached to the router it is called on.
@@ -134,91 +188,91 @@ func (r *router) Group(prefix string, ms ...Middleware) *routerGroup {
 	return &routerGroup{prefix: prefix, router: r, middles: ms}
 }
 
-// registerRoute is a method for registering a new route within the router. It associates an HTTP method and path with
-// a specific handler function and a slice of optional middleware. This method updates the routing tree of the router,
-// ensuring that incoming requests matching the method and path can be properly dispatched to the handler. If any errors
-// are detected during the registration process (such as invalid paths or conflicting routes), the method will panic.
+// registerRoute registers a new route with its handler and middleware in the router's routing tree. It
+// validates the path format, ensures it's properly structured, and may panic if there's a conflict.
+//
+// This method is called by the various HTTP method-specific functions like GET, POST, and is
+// internally used to set up routes with their respective handlers and middleware.
 //
 // Parameters:
-// - method: The HTTP method (e.g., GET, POST, etc.) for which the route is being registered.
-// - path: The URL path that the route will handle, starting with a forward slash '/'.
-// - handler: The HandleFunc type function that will be invoked when the route is matched.
-// - ms: A variadic slice of Middleware functions that will be applied to the request before the handler is invoked.
+//   - method: The HTTP method (e.g., GET, POST, PUT, etc.) that the route should respond to.
+//   - path: The URL pattern to match against incoming requests. It can include parameters marked
+//     with a colon ':' (e.g., '/users/:id') or wildcards '*'.
+//   - handleFunc: The function to be called when the route is matched. This function handles the
+//     HTTP request and generates a response. It can be nil if you're only attaching middleware.
+//   - mils: A variadic parameter of Middleware functions to be applied to the route. These are
+//     executed in the order they are provided, before the main handler function.
 //
-// The method performs the following actions:
+// This function internally:
+//   - Validates the path starts with a '/' and doesn't contain unnecessary trailing slashes.
+//   - Adds the route and its handler to the router's internal routing tree.
+//   - Associates the provided middleware with the route.
 //
-//  1. Validates the input path ensuring that it is not empty, starts with a forward slash '/' and does not end with a
-//     slash unless it is the root path "/".
-//  2. Looks up the root node for the provided HTTP method in the router's trees. If the tree for that method does not
-//     exist, it is created with an initial root node.
-//  3. For the special case of the root path "/", it immediately registers the handler and associated middleware.
-//     If the root node already has a handler, it panics to prevent route conflicts.
-//  4. For non-root paths, it splits the path into segments and iteratively creates or retrieves nodes in the routing tree
-//     corresponding to each segment.
-//  5. Checks if the final node in the segment sequence already has a handler to avoid route conflicts. If a handler exists,
-//     it panics to signify a conflict with an existing route.
-//  6. Registers the handler and route path at the final node found or created from the segments.
-//  7. Assigns the provided middleware functions to the final node, completing the route's registration.
-//
-// This method ensures that the routing tree accurately reflects all registered routes for each HTTP method, with the
-// appropriate handlers and middleware attached.
+// Note:
+// If you want to add middleware to all routes under a certain path, consider using the Group
+// functionality or the Use method instead.
 func (r *router) registerRoute(method string, path string, handler HandleFunc, ms ...Middleware) {
-	// Validate the incoming path to ensure it follows the expected format.
 	if path == "" {
-		// An empty path is invalid and indicative of an erroneous registration call.
 		panic(errs.ErrRouterNotString())
 	}
 	if path[0] != '/' {
-		// All paths must start with a '/' character, denoting the path's beginning relative to the root.
 		panic(errs.ErrRouterFront())
 	}
-	if path != "/" && path[len(path)-1] == '/' {
-		// No path (other than the root path "/") should end with a '/', preventing ambiguities in route matching.
-		panic(errs.ErrRouterBack())
+
+	// 检查路径尾部是否有多余的斜杠
+	path = strings.TrimRight(path, "/")
+	if path == "" {
+		path = "/"
 	}
 
-	// Obtain or initialize the root node for the specified HTTP method.
+	// 如果路径中包含双斜杠，则抛出异常
+	if strings.Contains(path, "//") {
+		panic(errs.ErrRouterNotSymbolic(path))
+	}
+
+	// 获取或创建HTTP方法对应的根节点
 	root, ok := r.trees[method]
 	if !ok {
-		// If no such node exists, create and map one for the specified method.
-		root = &node{path: "/"}
+		root = &node{
+			path:     "/",
+			children: make(map[string]*node),
+		}
 		r.trees[method] = root
 	}
 
-	// Register the route for the root path "/".
+	// 处理根路径 "/"
 	if path == "/" {
-		// Check if a handler for the root path is already set and panic if so to signal the conflict.
 		if root.handler != nil {
 			panic(errs.ErrRouterConflict("/"))
 		}
-		// Assign the handler and middleware to the root node for the provided HTTP method.
+		// 给根节点分配处理函数和中间件
 		root.handler = handler
 		root.route = "/"
 		root.mils = ms
 		return
 	}
 
-	// Process each segment in the path to build the respective nodes in the routing tree.
-	segs := strings.Split(path[1:], "/") // Remove the leading '/' and split the path into segments.
+	// 处理路径中的每个段来构建路由树中的节点
+	segs := strings.Split(path[1:], "/") // 去掉前导'/'并按'/'分割路径
 	for _, s := range segs {
-		// Each path segment must be a valid string.
+		// 每个路径段必须是有效的字符串
 		if s == "" {
 			panic(errs.ErrRouterNotSymbolic(path))
 		}
-		// Create or retrieve the child node for each segment, updating root to point to the latest node.
+		// 创建或获取每个段的子节点，不断更新root指向最新节点
 		root = root.childOrCreate(s)
 	}
 
-	// At the final segment node, check and set the route handler, avoiding conflicts.
+	// 在最终段节点设置路由处理函数和中间件，避免冲突
 	if root.handler != nil {
-		// If a handler is already set for this path, panic to avoid overwriting an existing route.
+		// 如果节点已经有处理函数，抛出异常避免覆盖现有路由
 		panic(errs.ErrRouterConflict(path))
 	}
 
-	// Set the handler and middleware for the final node in the path sequence, registering the route.
+	// 为路径序列中的最终节点设置处理函数和中间件，注册路由
 	root.handler = handler
 	root.route = path
-	root.mils = appendCollectMiddlewares(root, ms)
+	root.mils = ms
 }
 
 // appendCollectMiddlewares traverses up the tree from the given node to the root and collects all
@@ -264,6 +318,19 @@ func appendCollectMiddlewares(n *node, ms []Middleware) []Middleware {
 // - *matchInfo: A pointer to a `matchInfo` struct representing the matched route info, if a route is found.
 // - bool: A boolean indicator that is true if a route is found, false otherwise.
 func (r *router) findRoute(method string, path string) (*matchInfo, bool) {
+	// 检查路由缓存
+	if r.cacheEnabled {
+		r.routeCacheMux.RLock()
+		key := routeKey{method: method, path: path}
+		if mi, ok := r.routeCache[key]; ok {
+			r.cacheHits++
+			r.routeCacheMux.RUnlock()
+			return mi, true
+		}
+		r.cacheMisses++
+		r.routeCacheMux.RUnlock()
+	}
+
 	// Attempt to retrieve the root node for the HTTP method from the router's trees.
 	root, ok := r.trees[method]
 	// If the method does not have a corresponding tree, return no match.
@@ -273,81 +340,203 @@ func (r *router) findRoute(method string, path string) (*matchInfo, bool) {
 
 	// Special case for root path "/".
 	if path == "/" {
+		mi := &matchInfo{n: root, mils: root.mils}
+		// 添加到缓存
+		r.addToCache(method, path, mi)
 		// Return the root node's information with associated middleware, indicating a match is found.
-		return &matchInfo{n: root, mils: root.mils}, true
+		return mi, true
+	}
+
+	// 优化：直接使用二级缓存进行静态路径快速匹配
+	if child, found := r.tryFastMatch(root, path); found {
+		mi := &matchInfo{n: child, mils: r.findMils(root, strings.Split(strings.Trim(path, "/"), "/"))}
+		// 添加到缓存
+		r.addToCache(method, path, mi)
+		return mi, true
 	}
 
 	// Split the path into segments for traversal, ignoring any trailing slashes.
 	segs := strings.Split(strings.Trim(path, "/"), "/")
+
 	// Initialize matchInfo to store the matching route's info as we traverse.
-	mi := &matchInfo{}
+	mi := &matchInfo{
+		pathParams: make(map[string]string),
+	}
+
 	// Start from the root node.
 	cur := root
+
 	// Loop through the path segments to traverse the routing tree.
 	for _, s := range segs {
-		var matchParam bool // Used to check if the current node match is a parameterized path segment.
+		var found bool
 
-		// Find the child node matching the current path segment, capturing if it's a match with a parameter.
-		cur, matchParam, ok = cur.childOf(s)
-		// If there's no corresponding child node, the path does not match any route, return no match.
-		if !ok {
+		// 1. 尝试静态匹配 - 优先级最高
+		if child, ok := cur.children[s]; ok {
+			cur = child
+			found = true
+		}
+
+		// 2. 尝试正则表达式匹配 - 次优先级
+		if !found && cur.regChild != nil && cur.regChild.regExpr != nil {
+			if cur.regChild.regExpr.Match([]byte(s)) {
+				cur = cur.regChild
+				found = true
+				// 添加参数值
+				mi.addValue(cur.paramName, s)
+			}
+		}
+
+		// 3. 尝试参数匹配 - 再次优先级
+		if !found && cur.paramChild != nil {
+			cur = cur.paramChild
+			found = true
+			// 添加参数值
+			mi.addValue(cur.paramName, s)
+		}
+
+		// 4. 尝试通配符匹配 - 最低优先级
+		if !found && cur.starChild != nil {
+			cur = cur.starChild
+			found = true
+			// 通配符特殊处理 - 收集剩余路径
+			if cur.paramName != "" {
+				// 如果是最后一段，直接使用当前段
+				if len(segs) == 1 {
+					mi.addValue(cur.paramName, s)
+				} else {
+					// 否则，收集当前及后续所有段
+					remainingPath := strings.Join(segs[len(segs)-1:], "/")
+					mi.addValue(cur.paramName, remainingPath)
+					// 由于已经处理了所有剩余段，可以直接退出循环
+					break
+				}
+			}
+		}
+
+		// 如果没有找到匹配项，返回失败
+		if !found {
 			return &matchInfo{}, false
 		}
-		// If the current node match is a parameterized segment, record the parameter value in matchInfo.
-		if matchParam {
-			mi.addValue(root.path[1:], s)
-		}
+	}
+
+	// 确保找到的节点有处理函数
+	if cur == nil || cur.handler == nil {
+		return &matchInfo{}, false
 	}
 
 	// Having traversed all segments, assign the last node and collected middleware to `mi`.
 	mi.n = cur
 	mi.mils = r.findMils(root, segs)
+
+	// 添加到缓存
+	r.addToCache(method, path, mi)
+
 	// Return the populated matchInfo indicating a successful match.
 	return mi, true
 }
 
-// findMils searches through the routing tree for all middleware associated with the provided path segments.
-// It traverses the tree following the path segments, collecting middleware from each matching node along
-// the way. This process is typical of a web framework's router, where middleware needs to be gathered and
-// applied in the order it's defined along a route.
-//
-// Parameters:
-// - root: A pointer to the root node of the routing tree from where the search begins.
-// - segs: A slice of strings representing the individual segments of the path to search for.
-//
-// Returns:
-//   - []Middleware: A slice of Middleware that has been collected from the routing tree. The middleware is
-//     accumulated in the order encountered during the traversal.
+// tryFastMatch 尝试进行静态路径的快速匹配
+// 对于静态路径，不需要进行完整的树遍历，可以直接通过全路径快速查找
+func (r *router) tryFastMatch(root *node, path string) (*node, bool) {
+	// 这里可以实现一个静态路径的快速查找表
+	// 简化版本：仅对于完全静态的路径使用
+	path = strings.TrimRight(path, "/")
+	if path == "" {
+		path = "/"
+	}
+
+	// 循环检查是否有完全匹配的子节点
+	cur := root
+	if cur == nil {
+		return nil, false
+	}
+
+	if path == "/" {
+		return cur, cur.handler != nil
+	}
+
+	// 去掉前导斜杠
+	if path[0] == '/' {
+		path = path[1:]
+	}
+
+	segments := strings.Split(path, "/")
+
+	for _, seg := range segments {
+		if cur.children == nil {
+			return nil, false
+		}
+
+		child, ok := cur.children[seg]
+		if !ok {
+			// 如果没有找到静态子节点，说明可能需要参数匹配
+			return nil, false
+		}
+
+		cur = child
+	}
+
+	// 找到节点后检查是否有处理函数
+	return cur, cur.handler != nil
+}
+
+// addToCache 将路由匹配结果添加到缓存
+func (r *router) addToCache(method, path string, mi *matchInfo) {
+	if !r.cacheEnabled {
+		return
+	}
+
+	r.routeCacheMux.Lock()
+	defer r.routeCacheMux.Unlock()
+
+	// 检查缓存大小
+	if len(r.routeCache) >= r.maxCacheSize {
+		// 简单的缓存淘汰策略：当达到最大缓存大小时清空缓存
+		r.clearCache()
+	}
+
+	key := routeKey{method: method, path: path}
+	r.routeCache[key] = mi
+}
+
+// findMils 在路由树中查找与路径段关联的所有中间件
+// 这个方法需要遍历整个路径，收集每个匹配节点关联的中间件
 func (r *router) findMils(root *node, segs []string) []Middleware {
-	// Initialize a queue with the root node to begin the level-order traversal.
-	queue := []*node{root}
-	// Create a slice to store the middleware found.
-	res := make([]Middleware, 0, 16)
+	var mils []Middleware
 
-	// Loop through each segment in the path.
-	for i := 0; i < len(segs); i++ {
-		seg := segs[i]       // Current path segment.
-		var children []*node // Keep track of the children nodes of the current queue nodes.
-
-		// Loop through the current queue to search for middleware and child nodes matching the current segment.
-		for _, cur := range queue {
-			// Check if the current node has middleware and append it to the result if it does.
-			if len(cur.mils) > 0 {
-				res = append(res, cur.mils...)
-			}
-			// Collect all children of the current node that correspond to the current path segment.
-			children = append(children, cur.childrenOf(seg)...)
-		}
-		// Update the queue with the newly found children nodes for the next iteration.
-		queue = children
+	// 首先添加根节点的中间件
+	if len(root.mils) > 0 {
+		mils = append(mils, root.mils...)
 	}
 
-	// After going through all the segments, check if any of the remaining nodes in the queue have middleware to append.
-	for _, cur := range queue {
+	// 开始在当前节点
+	cur := root
+
+	// 遍历路径段，层层查找中间件
+	for _, seg := range segs {
+		// 检查静态匹配
+		if child, ok := cur.children[seg]; ok {
+			cur = child
+		} else if cur.regChild != nil && cur.regChild.regExpr.Match([]byte(seg)) {
+			// 正则匹配
+			cur = cur.regChild
+		} else if cur.paramChild != nil {
+			// 参数匹配
+			cur = cur.paramChild
+		} else if cur.starChild != nil {
+			// 通配符匹配
+			cur = cur.starChild
+			break // 通配符匹配后停止遍历
+		} else {
+			// 没有找到匹配节点，返回已收集的中间件
+			return mils
+		}
+
+		// 添加当前节点的中间件
 		if len(cur.mils) > 0 {
-			res = append(res, cur.mils...)
+			mils = append(mils, cur.mils...)
 		}
 	}
-	// Return the collected middleware.
-	return res
+
+	return mils
 }

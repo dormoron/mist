@@ -137,6 +137,7 @@ type HTTPServer struct {
 	router                        // Embedded routing management. Provides direct access to routing methods.
 	log            Logger         // Logger interface. Allows for flexible and consistent logging.
 	templateEngine TemplateEngine // Template processor interface. Facilitates HTML template rendering.
+	middlewares    []Middleware   // 全局中间件
 }
 
 // InitHTTPServer initializes and returns a pointer to a new HTTPServer instance. The server can be customized by
@@ -206,17 +207,12 @@ func ServerWithTemplateEngine(templateEngine TemplateEngine) HTTPServerOption {
 	}
 }
 
-// Use registers a variable number of middleware functions to be applied to all routes for the HTTP server.
-// The middleware functions provided will be called in the order they are passed for every request.
-//
-// Parameters:
-// mils ...Middleware - A variadic slice of middleware functions to be applied.
-//
-// Example:
-// s.Use(loggingMiddleware, authenticationMiddleware)
-func (s *HTTPServer) Use(mils ...Middleware) {
-	// UseForAll is invoked with a wildcard pattern to apply the middleware to all routes.
-	s.UseForAll("/*", mils...)
+// Use 注册全局中间件
+func (s *HTTPServer) Use(mdls ...Middleware) {
+	if len(mdls) == 0 {
+		return
+	}
+	s.middlewares = append(s.middlewares, mdls...)
 }
 
 // UseRoute associates a new route with the specified HTTP method and path to the server's routing system.
@@ -350,6 +346,13 @@ func (s *HTTPServer) server(ctx *Context) {
 	// Find the route that matches the method and path of the request.
 	mi, ok := s.findRoute(ctx.Request.Method, ctx.Request.URL.Path)
 
+	// 如果没有匹配到路由，直接返回404
+	if !ok || mi.n == nil || mi.n.handler == nil {
+		ctx.RespStatusCode = 404
+		s.flashResp(ctx)
+		return
+	}
+
 	// If a matching node is found, populate the context with the route-specific
 	// path parameters and the matched route.
 	if mi.n != nil {
@@ -358,20 +361,28 @@ func (s *HTTPServer) server(ctx *Context) {
 	}
 
 	// Define a root handle function that will attempt to execute the matched route's handler.
-	// If no match is found, or if the matched node does not have a handler, a 404-status code is set.
 	var root HandleFunc = func(ctx *Context) {
-		if !ok || mi.n == nil || mi.n.handler == nil {
-			ctx.RespStatusCode = 404 // Set status code to '404 Not Found' if the route is not resolved.
-			return
-		}
-		// If a handler exists for the route, call it passing the context.
+		// 路由已经匹配，直接调用处理函数
 		mi.n.handler(ctx)
 	}
 
-	// Execute all the applicable middlewares in reverse order.
-	// This is typically done to wrap the final handler with additional functionality.
-	for i := len(mi.mils) - 1; i >= 0; i-- {
-		root = mi.mils[i](root)
+	// 收集所有中间件，顺序为：全局中间件 -> 路由中间件
+	var mdls []Middleware
+
+	// 先添加全局中间件（外层）
+	if len(s.middlewares) > 0 {
+		mdls = append(mdls, s.middlewares...)
+	}
+
+	// 再添加路由特定的中间件（内层）
+	if len(mi.mils) > 0 {
+		mdls = append(mdls, mi.mils...)
+	}
+
+	// 反向应用中间件，确保路由顺序是：
+	// 全局中间件开始 -> 路由中间件开始 -> 处理函数 -> 路由中间件结束 -> 全局中间件结束
+	for i := len(mdls) - 1; i >= 0; i-- {
+		root = mdls[i](root)
 	}
 
 	// Define a middleware that ensures the response is properly sent after
@@ -440,17 +451,17 @@ func (s *HTTPServer) Start(addr string) error {
 	return http.Serve(l, s) // Return the result of http.Serve, which will block until the server stops.
 }
 
-// GET registers a new route and its associated handler function for HTTP GET requests.
-// This method is a shortcut for registering routes that should only respond to GET HTTP
-// method, typically used for retrieving resources.
+// GET registers a new route with an associated handler function for HTTP GET requests.
+// This method is primarily used to retrieve data from the server.
 //
 // Parameters:
-//   - path string: The URL pattern to match against incoming requests. The route pattern
-//     can contain parameters that will be parsed from the URL and made available to the
-//     handler function during request handling.
+//   - path string: The URL pattern to match for incoming GET requests. When a GET request
+//     arrives that matches this pattern, the associated handler function will be executed.
 //   - handleFunc: The function to be called when a request matching the path is
 //     received. The handler function is defined to take a *Context as its only parameter,
 //     through which it can access the request data and send a response back.
+//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
+//     before the handler function upon a route match.
 //
 // Example usage:
 //
@@ -462,8 +473,8 @@ func (s *HTTPServer) Start(addr string) error {
 // The method internally calls registerRoute to add the route to the server's routing
 // table with the method specified as `http.MethodGet`, which ensures that only GET
 // requests are handled by the provided handler.
-func (s *HTTPServer) GET(path string, handleFunc HandleFunc) {
-	s.registerRoute(http.MethodGet, path, handleFunc)
+func (s *HTTPServer) GET(path string, handleFunc HandleFunc, ms ...Middleware) {
+	s.registerRoute(http.MethodGet, path, handleFunc, ms...)
 }
 
 // HEAD registers a new route and its associated handler function for HTTP HEAD requests.
@@ -476,6 +487,8 @@ func (s *HTTPServer) GET(path string, handleFunc HandleFunc) {
 //   - handleFunc: The handler function that will be associated with the provided path
 //     pattern. This function will be called with a *Context parameter that contains information
 //     about the request and mechanisms to construct a response.
+//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
+//     before the handler function upon a route match.
 //
 // Example usage:
 //
@@ -488,8 +501,8 @@ func (s *HTTPServer) GET(path string, handleFunc HandleFunc) {
 // The method utilizes the registerRoute internal function to add the route to the server's
 // routing table specifically for the HEAD HTTP method, which ensures that only HEAD
 // requests will trigger the execution of the provided handler function.
-func (s *HTTPServer) HEAD(path string, handleFunc HandleFunc) {
-	s.registerRoute(http.MethodHead, path, handleFunc)
+func (s *HTTPServer) HEAD(path string, handleFunc HandleFunc, ms ...Middleware) {
+	s.registerRoute(http.MethodHead, path, handleFunc, ms...)
 }
 
 // POST registers a new route and its associated handler function for handling HTTP POST requests.
@@ -502,6 +515,8 @@ func (s *HTTPServer) HEAD(path string, handleFunc HandleFunc) {
 //   - handleFunc: The function to be executed when a POST request is made to the specified path.
 //     It receives a *Context object that contains the request information and provides the means to write
 //     a response back to the client.
+//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
+//     before the handler function upon a route match.
 //
 // Example usage:
 //
@@ -512,8 +527,8 @@ func (s *HTTPServer) HEAD(path string, handleFunc HandleFunc) {
 // Note:
 // The method delegates to registerRoute, internally setting the HTTP method to `http.MethodPost`. This
 // ensures that the registered handler is invoked only for POST requests matching the specified path.
-func (s *HTTPServer) POST(path string, handleFunc HandleFunc) {
-	s.registerRoute(http.MethodPost, path, handleFunc)
+func (s *HTTPServer) POST(path string, handleFunc HandleFunc, ms ...Middleware) {
+	s.registerRoute(http.MethodPost, path, handleFunc, ms...)
 }
 
 // PUT registers a new route and its associated handler function for handling HTTP PUT requests.
@@ -525,6 +540,8 @@ func (s *HTTPServer) POST(path string, handleFunc HandleFunc) {
 //   - handleFunc: A callback function that will be invoked when a PUT request is made to the
 //     specified path. The function takes a *Context parameter that provides access to the request data and
 //     response writer.
+//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
+//     before the handler function upon a route match.
 //
 // Example usage:
 //
@@ -536,8 +553,8 @@ func (s *HTTPServer) POST(path string, handleFunc HandleFunc) {
 // By calling registerRoute and specifying `http.MethodPut`, this method ensures that the handler is
 // specifically associated with PUT requests. If a PUT request is made on the matched path, the
 // corresponding handler function will be executed.
-func (s *HTTPServer) PUT(path string, handleFunc HandleFunc) {
-	s.registerRoute(http.MethodPut, path, handleFunc)
+func (s *HTTPServer) PUT(path string, handleFunc HandleFunc, ms ...Middleware) {
+	s.registerRoute(http.MethodPut, path, handleFunc, ms...)
 }
 
 // PATCH registers a new route with an associated handler function for HTTP PATCH requests.
@@ -549,6 +566,8 @@ func (s *HTTPServer) PUT(path string, handleFunc HandleFunc) {
 //   - handleFunc: The function to execute when the server receives a PATCH request at the
 //     specified path. This function is provided with a *Context object, enabling access to request
 //     information and response functionalities.
+//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
+//     before the handler function upon a route match.
 //
 // Example usage:
 //
@@ -560,8 +579,8 @@ func (s *HTTPServer) PUT(path string, handleFunc HandleFunc) {
 // Registering the route with the `http.MethodPatch` constant ensures that only PATCH requests are
 // handled by the provided function. The PATCH method is typically used to apply a partial update to
 // a resource, and this function is where you would define how the server handles such requests.
-func (s *HTTPServer) PATCH(path string, handleFunc HandleFunc) {
-	s.registerRoute(http.MethodPatch, path, handleFunc)
+func (s *HTTPServer) PATCH(path string, handleFunc HandleFunc, ms ...Middleware) {
+	s.registerRoute(http.MethodPatch, path, handleFunc, ms...)
 }
 
 // DELETE registers a new route with an associated handler function for HTTP DELETE requests.
@@ -575,6 +594,8 @@ func (s *HTTPServer) PATCH(path string, handleFunc HandleFunc) {
 //     registered path. This function should contain the logic to handle the deletion of a
 //     resource, and it is provided with a *Context object to interact with the request and
 //     response data.
+//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
+//     before the handler function upon a route match.
 //
 // Example usage:
 //
@@ -585,8 +606,8 @@ func (s *HTTPServer) PATCH(path string, handleFunc HandleFunc) {
 // Note:
 // Using `http.MethodDelete` in the call to registerRoute confines this handler to respond
 // solely to DELETE requests, providing a way to define how the server handles deletions.
-func (s *HTTPServer) DELETE(path string, handleFunc HandleFunc) {
-	s.registerRoute(http.MethodDelete, path, handleFunc)
+func (s *HTTPServer) DELETE(path string, handleFunc HandleFunc, ms ...Middleware) {
+	s.registerRoute(http.MethodDelete, path, handleFunc, ms...)
 }
 
 // CONNECT registers a new route with an associated handler function for handling HTTP CONNECT
@@ -601,6 +622,8 @@ func (s *HTTPServer) DELETE(path string, handleFunc HandleFunc) {
 //     request to the given path. This function has access to the request and response through
 //     a *Context, providing the necessary tools to implement the tunneling behavior or other
 //     custom logic expected on a CONNECT request.
+//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
+//     before the handler function upon a route match.
 //
 // Example usage:
 //
@@ -612,8 +635,8 @@ func (s *HTTPServer) DELETE(path string, handleFunc HandleFunc) {
 // The use of `http.MethodConnect` ensures that only HTTP CONNECT requests are matched to
 // this handler, facilitating the appropriate processing logic for these specialized request
 // types, which are different from the standard GET, POST, PUT, etc., methods.
-func (s *HTTPServer) CONNECT(path string, handleFunc HandleFunc) {
-	s.registerRoute(http.MethodConnect, path, handleFunc)
+func (s *HTTPServer) CONNECT(path string, handleFunc HandleFunc, ms ...Middleware) {
+	s.registerRoute(http.MethodConnect, path, handleFunc, ms...)
 }
 
 // OPTIONS registers a new route with an associated handler function for HTTP OPTIONS requests.
@@ -627,6 +650,8 @@ func (s *HTTPServer) CONNECT(path string, handleFunc HandleFunc) {
 //     It typically provides information about the HTTP methods that are available for a
 //     particular URL endpoint. The handleFunc is supplied with a *Context object to facilitate
 //     interaction with the HTTP request and response.
+//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
+//     before the handler function upon a route match.
 //
 // Example usage:
 //
@@ -639,6 +664,31 @@ func (s *HTTPServer) CONNECT(path string, handleFunc HandleFunc) {
 // standard practice to implement this method on a server to inform clients about the methods and
 // content types that the server is capable of handling, thereby aiding the client's decision-making
 // regarding further actions.
-func (s *HTTPServer) OPTIONS(path string, handleFunc HandleFunc) {
-	s.registerRoute(http.MethodOptions, path, handleFunc)
+func (s *HTTPServer) OPTIONS(path string, handleFunc HandleFunc, ms ...Middleware) {
+	s.registerRoute(http.MethodOptions, path, handleFunc, ms...)
+}
+
+// registerRoute is a method on the HTTPServer struct that registers a route with the server.
+// This method is called by the various HTTP method-specific functions like GET, POST, and is
+// internally used to set up routes with their respective handlers and middleware.
+//
+// Parameters:
+//   - method: The HTTP method (e.g., GET, POST, PUT, etc.) that the route should respond to.
+//   - path: The URL pattern to match against incoming requests. It can include parameters marked
+//     with a colon ':' (e.g., '/users/:id') or wildcards '*'.
+//   - handleFunc: The function to be called when the route is matched. This function handles the
+//     HTTP request and generates a response. It can be nil if you're only attaching middleware.
+//   - mils: A variadic parameter of Middleware functions to be applied to the route. These are
+//     executed in the order they are provided, before the main handler function.
+//
+// This function internally:
+//   - Validates the path starts with a '/' and doesn't contain unnecessary trailing slashes.
+//   - Adds the route and its handler to the router's internal routing tree.
+//   - Associates the provided middleware with the route.
+//
+// Note:
+// If you want to add middleware to all routes under a certain path, consider using the Group
+// functionality or the Use method instead.
+func (s *HTTPServer) registerRoute(method string, path string, handleFunc HandleFunc, mils ...Middleware) {
+	s.router.registerRoute(method, path, handleFunc, mils...)
 }
