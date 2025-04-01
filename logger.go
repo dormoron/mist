@@ -1,52 +1,193 @@
 package mist
 
-// Logger is an interface that specifies logging functionality.
-// The Logger interface declares one method, Fatalln, which is responsible
-// for logging critical messages that will lead to program termination.
-//
-// The Fatalln method takes a mandatory string message (msg) as the first
-// parameter, followed by a variadic set of arguments (args). The variadic
-// part means that the method can accept any number of arguments following
-// the first string message. This allows for formatting and inclusion of
-// various data types within the logged message.
-//
-// Upon invocation, Fatalln will log the provided message along with any
-// additional provided arguments. After logging the message, Fatalln will
-// call os.Exit(1) to terminate the program with a status code of 1,
-// which indicates an error state. This method is typically used to log
-// unrecoverable errors where continuing program execution is not advisable.
-//
-// It is important to use Fatalln cautiously as it will halt the execution
-// flow immediately after logging, which can cause defer statements and
-// resource cleanups to be bypassed.
-type Logger interface {
-	Fatalln(msg string, args ...any)
+import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sync"
+	"time"
+)
+
+// LogLevel 定义日志级别类型
+type LogLevel int
+
+// 日志级别常量
+const (
+	LevelDebug LogLevel = iota
+	LevelInfo
+	LevelWarn
+	LevelError
+	LevelFatal
+)
+
+// String 返回日志级别的字符串表示
+func (l LogLevel) String() string {
+	switch l {
+	case LevelDebug:
+		return "DEBUG"
+	case LevelInfo:
+		return "INFO"
+	case LevelWarn:
+		return "WARN"
+	case LevelError:
+		return "ERROR"
+	case LevelFatal:
+		return "FATAL"
+	default:
+		return "UNKNOWN"
+	}
 }
 
-// defaultLogger is a variable of type Logger, which serves as the default
-// logging instance used throughout the application. As an interface, Logger
-// abstracts the details of the logging implementation, allowing for flexibility
-// in the underlying logging mechanism used.
-//
-// The purpose of having a defaultLogger is to provide a central, commonly
-// accessible logging facility, so that different parts of the application can
-// log messages, warnings, and errors in a consistent manner. It ensures that
-// all logging activities are unified and can be easily configured or redirected
-// from a single point.
-//
-// Before using defaultLogger, it must be initialized with an actual implementation
-// of the Logger interface. This initialization process typically occurs during
-// the application's startup phase, where a specific logging implementation (such
-// as logrus, zap, or a custom logger) is instantiated and assigned to defaultLogger.
-// This allows the application to record logs according to the configured logging
-// level (e.g., INFO, WARN, ERROR), format (e.g., JSON, plaintext), and destination
-// (e.g., console, file, remote logging server).
-//
-// The specific logging implementation used can be swapped out with minimal changes
-// to the rest of the application, thanks to the abstraction provided by the Logger
-// interface. This design enhances the maintainability and scalability of the logging
-// system within the application.
-var defaultLogger Logger
+// Logger is an interface that specifies logging functionality.
+// 扩展Logger接口，提供更多日志级别
+type Logger interface {
+	Debug(msg string, args ...any)
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
+	Fatalln(msg string, args ...any)
+	WithField(key string, value any) Logger
+	SetLevel(level LogLevel)
+	GetLevel() LogLevel
+	SetOutput(w io.Writer)
+}
+
+// StdLogger 是Logger接口的标准实现
+type StdLogger struct {
+	mu     sync.Mutex
+	out    io.Writer
+	level  LogLevel
+	fields map[string]any
+}
+
+// NewStdLogger 创建一个标准日志记录器
+func NewStdLogger(level LogLevel, out io.Writer) *StdLogger {
+	if out == nil {
+		out = os.Stdout
+	}
+	return &StdLogger{
+		out:    out,
+		level:  level,
+		fields: make(map[string]any),
+	}
+}
+
+// formatLog 格式化日志消息
+func (l *StdLogger) formatLog(level LogLevel, msg string, args ...any) string {
+	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+
+	// 获取调用者文件和行号
+	_, file, line, ok := runtime.Caller(2)
+	fileInfo := "???"
+	if ok {
+		fileInfo = fmt.Sprintf("%s:%d", filepath.Base(file), line)
+	}
+
+	// 格式化字段
+	fields := ""
+	for k, v := range l.fields {
+		fields += fmt.Sprintf(" %s=%v", k, v)
+	}
+
+	// 格式化参数
+	logMsg := msg
+	if len(args) > 0 {
+		logMsg = fmt.Sprintf(msg, args...)
+	}
+
+	return fmt.Sprintf("[%s] [%s] [%s]%s %s\n", timestamp, level, fileInfo, fields, logMsg)
+}
+
+// log 执行实际的日志记录
+func (l *StdLogger) log(level LogLevel, msg string, args ...any) {
+	if level < l.level {
+		return
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	logMsg := l.formatLog(level, msg, args...)
+	_, _ = fmt.Fprint(l.out, logMsg)
+
+	if level == LevelFatal {
+		os.Exit(1)
+	}
+}
+
+// Debug 记录调试级别日志
+func (l *StdLogger) Debug(msg string, args ...any) {
+	l.log(LevelDebug, msg, args...)
+}
+
+// Info 记录信息级别日志
+func (l *StdLogger) Info(msg string, args ...any) {
+	l.log(LevelInfo, msg, args...)
+}
+
+// Warn 记录警告级别日志
+func (l *StdLogger) Warn(msg string, args ...any) {
+	l.log(LevelWarn, msg, args...)
+}
+
+// Error 记录错误级别日志
+func (l *StdLogger) Error(msg string, args ...any) {
+	l.log(LevelError, msg, args...)
+}
+
+// Fatalln 记录致命级别日志，并终止程序
+func (l *StdLogger) Fatalln(msg string, args ...any) {
+	l.log(LevelFatal, msg, args...)
+}
+
+// WithField 返回带有附加字段的日志记录器
+func (l *StdLogger) WithField(key string, value any) Logger {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// 创建新的logger实例，复制当前配置
+	newLogger := &StdLogger{
+		out:    l.out,
+		level:  l.level,
+		fields: make(map[string]any, len(l.fields)+1),
+	}
+
+	// 复制现有字段
+	for k, v := range l.fields {
+		newLogger.fields[k] = v
+	}
+
+	// 添加新字段
+	newLogger.fields[key] = value
+
+	return newLogger
+}
+
+// SetLevel 设置日志级别
+func (l *StdLogger) SetLevel(level LogLevel) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.level = level
+}
+
+// GetLevel 获取当前日志级别
+func (l *StdLogger) GetLevel() LogLevel {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.level
+}
+
+// SetOutput 设置日志输出目标
+func (l *StdLogger) SetOutput(w io.Writer) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.out = w
+}
+
+// 默认日志记录器
+var defaultLogger Logger = NewStdLogger(LevelInfo, os.Stdout)
 
 // SetDefaultLogger is a function that allows for the configuration of the
 // application's default logging behavior by setting the provided logger
@@ -93,4 +234,78 @@ var defaultLogger Logger
 // log data.
 func SetDefaultLogger(log Logger) {
 	defaultLogger = log
+}
+
+// GetDefaultLogger 返回当前默认的日志记录器
+func GetDefaultLogger() Logger {
+	return defaultLogger
+}
+
+// 全局日志方法
+func Debug(msg string, args ...any) {
+	defaultLogger.Debug(msg, args...)
+}
+
+func Info(msg string, args ...any) {
+	defaultLogger.Info(msg, args...)
+}
+
+func Warn(msg string, args ...any) {
+	defaultLogger.Warn(msg, args...)
+}
+
+func Error(msg string, args ...any) {
+	defaultLogger.Error(msg, args...)
+}
+
+func Fatal(msg string, args ...any) {
+	defaultLogger.Fatalln(msg, args...)
+}
+
+// WithField 向全局日志记录器添加字段
+func WithField(key string, value any) Logger {
+	return defaultLogger.WithField(key, value)
+}
+
+// 日志文件旋转配置
+type LogRotateConfig struct {
+	Filename   string
+	MaxSize    int  // 单个文件的最大尺寸，MB
+	MaxAge     int  // 保留日志的最大天数
+	MaxBackups int  // 保留的最大旧日志文件数
+	LocalTime  bool // 使用本地时间
+	Compress   bool // 是否压缩旧日志
+}
+
+// 这里我们没有实现具体的日志轮转逻辑，在实际项目中可以使用第三方库如lumberjack
+// 下面是一个使用接口的示例，用户可以根据需要实现自己的轮转逻辑
+
+// LogRotator 日志文件轮转接口
+type LogRotator interface {
+	io.WriteCloser
+}
+
+// SetupLogRotation 设置日志轮转，这里只是示例，未实现具体逻辑
+func SetupLogRotation(config LogRotateConfig) error {
+	// 在实际实现中，可以使用如下代码：
+	/*
+		rotator := &lumberjack.Logger{
+			Filename:   config.Filename,
+			MaxSize:    config.MaxSize,    // megabytes
+			MaxAge:     config.MaxAge,     // days
+			MaxBackups: config.MaxBackups,
+			LocalTime:  config.LocalTime,
+			Compress:   config.Compress,
+		}
+
+		// 设置默认logger使用rotator作为输出
+		if l, ok := defaultLogger.(*StdLogger); ok {
+			l.SetOutput(rotator)
+		} else {
+			defaultLogger.SetOutput(rotator)
+		}
+	*/
+
+	// 由于依赖问题，这里不实现具体逻辑，返回nil
+	return nil
 }

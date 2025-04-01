@@ -1,9 +1,11 @@
 package mist
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 // This line asserts that HTTPServer implements the Server interface at compile time.
@@ -138,6 +140,41 @@ type HTTPServer struct {
 	log            Logger         // Logger interface. Allows for flexible and consistent logging.
 	templateEngine TemplateEngine // Template processor interface. Facilitates HTML template rendering.
 	middlewares    []Middleware   // 全局中间件
+	httpServer     *http.Server   // 内置的HTTP服务器，用于配置和优雅关闭
+}
+
+// ServerConfig 定义HTTP服务器的配置选项
+type ServerConfig struct {
+	ReadTimeout       time.Duration // 读取整个请求的超时时间
+	WriteTimeout      time.Duration // 写入响应的超时时间
+	IdleTimeout       time.Duration // 连接空闲超时时间
+	ReadHeaderTimeout time.Duration // 读取请求头的超时时间
+	MaxHeaderBytes    int           // 请求头的最大字节数
+}
+
+// DefaultServerConfig 返回默认的服务器配置
+func DefaultServerConfig() ServerConfig {
+	return ServerConfig{
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1MB
+	}
+}
+
+// WithServerConfig 设置HTTP服务器配置
+func WithServerConfig(config ServerConfig) HTTPServerOption {
+	return func(s *HTTPServer) {
+		if s.httpServer == nil {
+			s.httpServer = &http.Server{}
+		}
+		s.httpServer.ReadTimeout = config.ReadTimeout
+		s.httpServer.WriteTimeout = config.WriteTimeout
+		s.httpServer.IdleTimeout = config.IdleTimeout
+		s.httpServer.ReadHeaderTimeout = config.ReadHeaderTimeout
+		s.httpServer.MaxHeaderBytes = config.MaxHeaderBytes
+	}
 }
 
 // InitHTTPServer initializes and returns a pointer to a new HTTPServer instance. The server can be customized by
@@ -281,7 +318,7 @@ func (s *HTTPServer) UseForAll(path string, mdls ...Middleware) {
 //
 //  1. It begins by creating a new Context instance, which is a custom type holding the HTTP request and response
 //     writer, along with other request-specific information like the templating engine.
-//  2. It retrieves the root handler from the server's configuration 's.server', which represents the starting point
+//  2. It retrieves the root handler from the server's configuration 's.httpServer', which represents the starting point
 //     for the request handling pipeline.
 //  3. Iteratively wraps the root handler with the server's configured middleware in reverse order. Middleware is
 //     essentially a chain of functions that can execute before and/or after the main request handler to perform
@@ -441,14 +478,58 @@ func (s *HTTPServer) server(ctx *Context) {
 // The Start method is a blocking call. Once called, it will continue to run, serving incoming HTTP requests until
 // an error is encountered or the server is manually stopped.
 func (s *HTTPServer) Start(addr string) error {
-	// Create a new TCP listener on the specified address.
-	l, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err // Return the error if the listener could not be created.
+	// 如果server未初始化，使用默认配置
+	if s.httpServer == nil {
+		s.httpServer = &http.Server{
+			Handler:           s,
+			ReadTimeout:       60 * time.Second,
+			WriteTimeout:      60 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			ReadHeaderTimeout: 10 * time.Second,
+			MaxHeaderBytes:    1 << 20, // 1MB
+		}
+	} else {
+		s.httpServer.Handler = s
 	}
 
-	// Start the HTTP server with the newly created listener, using 's' (HTTPServer) as the handler.
-	return http.Serve(l, s) // Return the result of http.Serve, which will block until the server stops.
+	s.httpServer.Addr = addr
+
+	// 创建监听器
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+
+	return s.httpServer.Serve(l)
+}
+
+// StartTLS 启动HTTPS服务器
+func (s *HTTPServer) StartTLS(addr, certFile, keyFile string) error {
+	// 如果server未初始化，使用默认配置
+	if s.httpServer == nil {
+		s.httpServer = &http.Server{
+			Handler:           s,
+			ReadTimeout:       60 * time.Second,
+			WriteTimeout:      60 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			ReadHeaderTimeout: 10 * time.Second,
+			MaxHeaderBytes:    1 << 20, // 1MB
+		}
+	} else {
+		s.httpServer.Handler = s
+	}
+
+	s.httpServer.Addr = addr
+
+	return s.httpServer.ListenAndServeTLS(certFile, keyFile)
+}
+
+// Shutdown 优雅关闭服务器，等待现有请求完成
+func (s *HTTPServer) Shutdown(ctx context.Context) error {
+	if s.httpServer == nil {
+		return nil
+	}
+	return s.httpServer.Shutdown(ctx)
 }
 
 // GET registers a new route with an associated handler function for HTTP GET requests.
@@ -691,4 +772,29 @@ func (s *HTTPServer) OPTIONS(path string, handleFunc HandleFunc, ms ...Middlewar
 // functionality or the Use method instead.
 func (s *HTTPServer) registerRoute(method string, path string, handleFunc HandleFunc, mils ...Middleware) {
 	s.router.registerRoute(method, path, handleFunc, mils...)
+}
+
+// EnableRouteStats 启用路由统计
+func (s *HTTPServer) EnableRouteStats() {
+	s.router.EnableStats()
+}
+
+// DisableRouteStats 禁用路由统计
+func (s *HTTPServer) DisableRouteStats() {
+	s.router.DisableStats()
+}
+
+// GetRouteStats 获取指定路由的统计信息
+func (s *HTTPServer) GetRouteStats(route string) (map[string]interface{}, bool) {
+	return s.router.GetRouteStats(route)
+}
+
+// GetAllRouteStats 获取所有路由的统计信息
+func (s *HTTPServer) GetAllRouteStats() map[string]map[string]interface{} {
+	return s.router.GetAllRouteStats()
+}
+
+// ResetRouteStats 重置路由统计信息
+func (s *HTTPServer) ResetRouteStats() {
+	s.router.ResetRouteStats()
 }

@@ -1,11 +1,12 @@
 package crawlerdetect
 
 import (
-	"github.com/dormoron/mist"
-	"github.com/dormoron/mist/internal/crawlerdetect"
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/dormoron/mist"
+	"github.com/dormoron/mist/internal/crawlerdetect"
 )
 
 // Baidu Initialize constants for crawler identification strings as provided by the crawlerdetect package.

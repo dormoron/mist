@@ -3,6 +3,7 @@ package mist
 import (
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dormoron/mist/internal/errs"
 )
@@ -11,6 +12,17 @@ import (
 type routeKey struct {
 	method string
 	path   string
+}
+
+// routeStats 路由统计信息
+type routeStats struct {
+	hits             int64         // 命中次数
+	totalTime        time.Duration // 总处理时间
+	maxTime          time.Duration // 最长处理时间
+	minTime          time.Duration // 最短处理时间
+	lastAccessTime   time.Time     // 最后访问时间
+	creationTime     time.Time     // 创建时间
+	lastResponseCode int           // 最后响应码
 }
 
 // router is a data structure that is used to store and retrieve the routing information
@@ -71,6 +83,15 @@ type router struct {
 	cacheHits     uint64
 	cacheMisses   uint64
 	cacheEnabled  bool
+
+	// routeStatsMu protects concurrent access to routeStats
+	routeStatsMu sync.RWMutex
+
+	// routeStats tracks performance statistics for each route
+	routeStats map[string]*routeStats
+
+	// enableStats indicates whether route statistics are enabled
+	enableStats bool
 }
 
 // initRouter is a factory function that initializes and returns a new instance of the 'router' struct.
@@ -116,6 +137,8 @@ func initRouter() router {
 		routeCache:   make(map[routeKey]*matchInfo, 1024),
 		maxCacheSize: 10000, // 默认缓存大小
 		cacheEnabled: true,  // 默认启用缓存
+		routeStats:   make(map[string]*routeStats),
+		enableStats:  false,
 	}
 }
 
@@ -431,7 +454,15 @@ func (r *router) findRoute(method string, path string) (*matchInfo, bool) {
 	// 添加到缓存
 	r.addToCache(method, path, mi)
 
-	// Return the populated matchInfo indicating a successful match.
+	// 记录开始时间，用于性能统计
+	startTime := time.Now()
+
+	// 查找到路由后，如果启用了统计功能，记录路由信息
+	// 注意：实际响应码会在请求处理完成后才能获取，这里暂时设置为0
+	if r.enableStats && mi.n != nil {
+		go r.trackRouteStats(mi.n.route, startTime, 0)
+	}
+
 	return mi, true
 }
 
@@ -539,4 +570,114 @@ func (r *router) findMils(root *node, segs []string) []Middleware {
 	}
 
 	return mils
+}
+
+// EnableStats 启用路由统计
+func (r *router) EnableStats() {
+	r.enableStats = true
+}
+
+// DisableStats 禁用路由统计
+func (r *router) DisableStats() {
+	r.enableStats = false
+}
+
+// GetRouteStats 获取指定路由的统计信息
+func (r *router) GetRouteStats(route string) (map[string]interface{}, bool) {
+	r.routeStatsMu.RLock()
+	defer r.routeStatsMu.RUnlock()
+
+	stats, exists := r.routeStats[route]
+	if !exists {
+		return nil, false
+	}
+
+	var avgTime time.Duration
+	if stats.hits > 0 {
+		avgTime = time.Duration(int64(stats.totalTime) / stats.hits)
+	}
+
+	return map[string]interface{}{
+		"hits":               stats.hits,
+		"avg_time_ms":        avgTime.Milliseconds(),
+		"max_time_ms":        stats.maxTime.Milliseconds(),
+		"min_time_ms":        stats.minTime.Milliseconds(),
+		"last_access_time":   stats.lastAccessTime,
+		"creation_time":      stats.creationTime,
+		"last_response_code": stats.lastResponseCode,
+	}, true
+}
+
+// GetAllRouteStats 获取所有路由的统计信息
+func (r *router) GetAllRouteStats() map[string]map[string]interface{} {
+	r.routeStatsMu.RLock()
+	defer r.routeStatsMu.RUnlock()
+
+	result := make(map[string]map[string]interface{})
+
+	for route, stats := range r.routeStats {
+		var avgTime time.Duration
+		if stats.hits > 0 {
+			avgTime = time.Duration(int64(stats.totalTime) / stats.hits)
+		}
+
+		result[route] = map[string]interface{}{
+			"hits":               stats.hits,
+			"avg_time_ms":        avgTime.Milliseconds(),
+			"max_time_ms":        stats.maxTime.Milliseconds(),
+			"min_time_ms":        stats.minTime.Milliseconds(),
+			"last_access_time":   stats.lastAccessTime,
+			"creation_time":      stats.creationTime,
+			"last_response_code": stats.lastResponseCode,
+		}
+	}
+
+	return result
+}
+
+// ResetRouteStats 重置所有路由统计信息
+func (r *router) ResetRouteStats() {
+	r.routeStatsMu.Lock()
+	defer r.routeStatsMu.Unlock()
+
+	r.routeStats = make(map[string]*routeStats)
+}
+
+// trackRouteStats 记录路由统计信息
+func (r *router) trackRouteStats(route string, start time.Time, statusCode int) {
+	if !r.enableStats {
+		return
+	}
+
+	elapsed := time.Since(start)
+
+	r.routeStatsMu.Lock()
+	defer r.routeStatsMu.Unlock()
+
+	stats, exists := r.routeStats[route]
+	if !exists {
+		stats = &routeStats{
+			hits:             1,
+			totalTime:        elapsed,
+			maxTime:          elapsed,
+			minTime:          elapsed,
+			creationTime:     time.Now(),
+			lastAccessTime:   time.Now(),
+			lastResponseCode: statusCode,
+		}
+		r.routeStats[route] = stats
+	} else {
+		stats.hits++
+		stats.totalTime += elapsed
+		stats.lastAccessTime = time.Now()
+		stats.lastResponseCode = statusCode
+
+		if elapsed > stats.maxTime {
+			stats.maxTime = elapsed
+		}
+
+		if elapsed < stats.minTime {
+			stats.minTime = elapsed
+		}
+	}
 }

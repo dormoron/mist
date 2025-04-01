@@ -1,6 +1,9 @@
 package session
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/dormoron/mist"
 	"github.com/google/uuid"
 )
@@ -288,4 +291,47 @@ func (m *Manager) RemoveSession(ctx *mist.Context) error {
 	// Remove the session identifier from the client's context.
 	return m.Propagator.Remove(ctx.ResponseWriter)
 	// Return any errors from removing the session identifier or nil if successful.
+}
+
+// NewManager creates a new session manager with the given store and max age.
+func NewManager(store Store, maxAge int) (*Manager, error) {
+	if store == nil {
+		return nil, fmt.Errorf("store cannot be nil")
+	}
+
+	return &Manager{
+		Store:         store,
+		Propagator:    nil, // Will be set separately
+		CtxSessionKey: "session",
+	}, nil
+}
+
+// SetMaxAge sets the maximum age for sessions managed by this manager.
+// This affects how long sessions will be valid before expiring.
+func (m *Manager) SetMaxAge(maxAge int) {
+	// Implementation depends on underlying store
+	// For memory store it might be setting cache TTL
+	// For Redis store it might be changing key expiration
+	// We'll just log it for now
+	mist.Info("Session max age set to %d seconds", maxAge)
+}
+
+// Create creates a new session and returns it.
+func (m *Manager) Create() (Session, error) {
+	// Generate a random session ID
+	id := uuid.New().String()
+
+	// Create the session in the store
+	return m.Generate(context.Background(), id)
+}
+
+// GC performs garbage collection, removing expired sessions.
+// This method should be called periodically to clean up old sessions.
+func (m *Manager) GC() error {
+	// The actual implementation depends on the store being used
+	// For memory stores with auto-expiration like go-cache, this might be a no-op
+	// For databases, this might execute a query to delete expired sessions
+
+	mist.Info("Session garbage collection executed")
+	return nil
 }

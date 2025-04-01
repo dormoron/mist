@@ -1,6 +1,9 @@
 package cookie
 
-import "net/http"
+import (
+	"net/http"
+	"time"
+)
 
 // PropagatorOptions is a functional option type for configuring instances of Propagator.
 // The type defines a function signature that accepts a pointer to Propagator as its sole argument.
@@ -14,7 +17,7 @@ import "net/http"
 //
 // Usage:
 // To use PropagatorOptions, define functions that match the signature of this type.
-// When such a function is called with a Propagator instance, it should modify the Propagator’s state
+// When such a function is called with a Propagator instance, it should modify the Propagator's state
 // according to the intended configuration. These functions can then be passed to a constructor function
 // or method responsible for setting up a new Propagator, where they will be applied in sequence.
 //
@@ -293,5 +296,121 @@ func (p *Propagator) Remove(writer http.ResponseWriter) error {
 	// Return nil, indicating no error has occurred during the cookie removal process.
 	// In the future, error handling could be included here if, for instance, the response
 	// writer is not in a valid state to set headers.
+	return nil
+}
+
+// CookiePropagator 基于Cookie的会话ID传播器
+type CookiePropagator struct {
+	name     string
+	path     string
+	domain   string
+	maxAge   int
+	secure   bool
+	httpOnly bool
+	sameSite http.SameSite
+}
+
+// NewPropagator 创建新的Cookie传播器
+func NewPropagator(name string, opts ...PropagatorOption) *CookiePropagator {
+	p := &CookiePropagator{
+		name:     name,
+		path:     "/",
+		maxAge:   3600, // 1小时
+		secure:   true,
+		httpOnly: true,
+		sameSite: http.SameSiteStrictMode,
+	}
+
+	for _, opt := range opts {
+		opt(p)
+	}
+
+	return p
+}
+
+// PropagatorOption Cookie传播器配置函数
+type PropagatorOption func(*CookiePropagator)
+
+// WithPath 设置Cookie路径
+func WithPath(path string) PropagatorOption {
+	return func(p *CookiePropagator) {
+		p.path = path
+	}
+}
+
+// WithDomain 设置Cookie域名
+func WithDomain(domain string) PropagatorOption {
+	return func(p *CookiePropagator) {
+		p.domain = domain
+	}
+}
+
+// WithMaxAge 设置Cookie最大有效期（秒）
+func WithMaxAge(maxAge int) PropagatorOption {
+	return func(p *CookiePropagator) {
+		p.maxAge = maxAge
+	}
+}
+
+// WithSecure 设置Cookie是否只通过HTTPS传输
+func WithSecure(secure bool) PropagatorOption {
+	return func(p *CookiePropagator) {
+		p.secure = secure
+	}
+}
+
+// WithHTTPOnly 设置Cookie是否禁止JavaScript访问
+func WithHTTPOnly(httpOnly bool) PropagatorOption {
+	return func(p *CookiePropagator) {
+		p.httpOnly = httpOnly
+	}
+}
+
+// WithSameSite 设置Cookie的SameSite属性
+func WithSameSite(sameSite http.SameSite) PropagatorOption {
+	return func(p *CookiePropagator) {
+		p.sameSite = sameSite
+	}
+}
+
+// Inject 将会话ID注入到响应中的Cookie
+func (p *CookiePropagator) Inject(id string, writer http.ResponseWriter) error {
+	cookie := &http.Cookie{
+		Name:     p.name,
+		Value:    id,
+		Path:     p.path,
+		Domain:   p.domain,
+		MaxAge:   p.maxAge,
+		Secure:   p.secure,
+		HttpOnly: p.httpOnly,
+		SameSite: p.sameSite,
+	}
+	http.SetCookie(writer, cookie)
+	return nil
+}
+
+// Extract 从请求中的Cookie提取会话ID
+func (p *CookiePropagator) Extract(req *http.Request) (string, error) {
+	cookie, err := req.Cookie(p.name)
+	if err != nil {
+		return "", err
+	}
+	return cookie.Value, nil
+}
+
+// Remove 从响应中移除会话Cookie
+func (p *CookiePropagator) Remove(writer http.ResponseWriter) error {
+	cookie := &http.Cookie{
+		Name:     p.name,
+		Value:    "",
+		Path:     p.path,
+		Domain:   p.domain,
+		MaxAge:   -1,
+		Expires:  time.Unix(0, 0),
+		Secure:   p.secure,
+		HttpOnly: p.httpOnly,
+		SameSite: p.sameSite,
+	}
+	http.SetCookie(writer, cookie)
 	return nil
 }

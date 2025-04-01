@@ -87,6 +87,7 @@ type Store interface {
 //   - ID() string: This method returns the unique identifier for the session. Typically, this identifier
 //     is generated when the session is first created and remains constant throughout the session's
 //     lifecycle. The ID is used to link a session to a specific user or interaction sequence.
+//   - Save() error: Saves any changes to the session.
 //
 // Usage and Implementation Notes:
 // The 'Session' type assumes 'any' type for stored values, allowing for flexibility in what kinds of
@@ -124,6 +125,7 @@ type Session interface {
 	Get(ctx context.Context, key string) (any, error)     // Retrieve a value from the session
 	Set(ctx context.Context, key string, value any) error // Store a value in the session
 	ID() string                                           // Return the session's unique identifier
+	Save() error                                          // Save any changes to the session
 }
 
 // The Propagator interface defines methods responsible for managing the propagation

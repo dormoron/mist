@@ -2,11 +2,12 @@ package memory
 
 import (
 	"context"
+	"sync"
+	"time"
+
 	"github.com/dormoron/mist/internal/errs"
 	"github.com/dormoron/mist/session"
 	"github.com/patrickmn/go-cache"
-	"sync"
-	"time"
 )
 
 // Store represents a storage mechanism for session information. It provides thread-safe
@@ -72,6 +73,16 @@ func InitStore(expiration time.Duration) *Store {
 		// sessions adhere to this expiration policy.
 		expiration: expiration,
 	}
+}
+
+// NewStore creates a new memory store for session data. It initializes the store
+// with a default expiration duration.
+func NewStore() (*Store, error) {
+	// default expiration of 30 minutes
+	return &Store{
+		sessions:   cache.New(30*time.Minute, time.Minute),
+		expiration: 30 * time.Minute,
+	}, nil
 }
 
 // Generate creates a new session with the specified ID and stores it in the Store's session
@@ -311,19 +322,15 @@ func (s *Session) Set(ctx context.Context, key string, value any) error {
 	return nil
 }
 
-// ID returns the unique session identifier associated with the session instance.
-// This identifier is intended to be used to reference or differentiate the session
-// in a larger context, such as a session manager or store. The method provides a
-// safe way to access the session's ID field.
-//
-// Parameters:
-// - None
-//
-// Returns:
-// - string: The unique identifier string of the current session instance.
+// ID returns the unique session identifier for this session.
 func (s *Session) ID() string {
-	// Return the session's identifier.
-	// The id field is assumed to be immutable after session creation,
-	// hence it is safe to access without additional synchronization mechanisms.
 	return s.id
+}
+
+// Save saves any changes to the session.
+// For memory sessions, this is a no-op as changes are saved immediately.
+func (s *Session) Save() error {
+	// Memory session values are saved immediately when Set is called
+	// so no additional saving is needed
+	return nil
 }

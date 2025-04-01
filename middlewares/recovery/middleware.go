@@ -2,9 +2,16 @@ package recovery
 
 import (
 	"fmt"
-	"github.com/dormoron/mist"
+	"net/http"
+	"runtime"
+	"strings"
 	"time"
+
+	"github.com/dormoron/mist"
 )
+
+// StackTraceHandler 是一个处理堆栈跟踪的函数类型
+type StackTraceHandler func(stackTrace []string, ctx *mist.Context, err any)
 
 // MiddlewareBuilder is a struct that encapsulates configurations for building middleware.
 // It is designed to be used for creating middleware that can handle errors, log requests,
@@ -51,25 +58,63 @@ type MiddlewareBuilder struct {
 	// LogFunc is a callback function to be executed when logging is required. For example,
 	// this function can be called upon an error to log the incident for monitoring or debugging.
 	LogFunc func(ctx *mist.Context, err any)
+
+	// PrintStack 是否打印堆栈信息
+	PrintStack bool
+
+	// StackSize 堆栈大小限制
+	StackSize int
+
+	// StackTraceHandler 堆栈跟踪处理函数
+	StackTraceHandler StackTraceHandler
 }
 
+// InitMiddlewareBuilder initializes a new MiddlewareBuilder with the specified status code and error message.
 func InitMiddlewareBuilder(statusCode int, errMsg []byte) *MiddlewareBuilder {
 	return &MiddlewareBuilder{
-		StatusCode: statusCode,
-		ErrMsg:     errMsg,
-		LogFunc:    defaultLogFunc,
+		StatusCode:        statusCode,
+		ErrMsg:            errMsg,
+		LogFunc:           defaultLogFunc,
+		PrintStack:        true,
+		StackSize:         4096,
+		StackTraceHandler: defaultStackTraceHandler,
 	}
 }
 
+// SetLogFunc sets the logging function to be used by the middleware.
 func (m *MiddlewareBuilder) SetLogFunc(logFunc func(ctx *mist.Context, err any)) *MiddlewareBuilder {
 	m.LogFunc = logFunc
+	return m
+}
+
+// SetPrintStack 设置是否打印堆栈信息
+func (m *MiddlewareBuilder) SetPrintStack(printStack bool) *MiddlewareBuilder {
+	m.PrintStack = printStack
+	return m
+}
+
+// SetStackSize 设置堆栈大小限制
+func (m *MiddlewareBuilder) SetStackSize(stackSize int) *MiddlewareBuilder {
+	m.StackSize = stackSize
+	return m
+}
+
+// SetStackTraceHandler 设置堆栈跟踪处理函数
+func (m *MiddlewareBuilder) SetStackTraceHandler(handler StackTraceHandler) *MiddlewareBuilder {
+	m.StackTraceHandler = handler
 	return m
 }
 
 // defaultLogFunc is the default logging function used by the middleware.
 // It logs a message with a timestamp to standard output.
 func defaultLogFunc(ctx *mist.Context, err any) {
-	fmt.Printf("%s - %e\n", time.Now().Format(time.RFC3339), err)
+	mist.Error("Recovery middleware caught panic: %v", err)
+}
+
+// defaultStackTraceHandler 默认堆栈跟踪处理函数
+func defaultStackTraceHandler(stackTrace []string, ctx *mist.Context, err any) {
+	stackStr := strings.Join(stackTrace, "\n")
+	mist.Error("Stack trace for panic [%v]:\n%s", err, stackStr)
 }
 
 // Build creates and returns a mist.Middleware based on the configurations provided in the MiddlewareBuilder.
@@ -90,9 +135,41 @@ func (m *MiddlewareBuilder) Build() mist.Middleware {
 			// Use deferring and recover to catch any panics that occur during the HTTP handling cycle.
 			defer func() {
 				if err := recover(); err != nil {
+					// 获取请求信息
+					reqID := ctx.RequestID()
+					method := ctx.Request.Method
+					path := ctx.Request.URL.Path
+
+					// 收集堆栈跟踪
+					if m.PrintStack {
+						// 分配堆栈缓冲区
+						buf := make([]byte, m.StackSize)
+						n := runtime.Stack(buf, false)
+						stackTrace := strings.Split(string(buf[:n]), "\n")
+
+						// 调用堆栈处理函数
+						if m.StackTraceHandler != nil {
+							m.StackTraceHandler(stackTrace, ctx, err)
+						}
+					}
+
+					// 记录错误信息
+					mist.WithField("request_id", reqID).
+						WithField("method", method).
+						WithField("path", path).
+						WithField("error", fmt.Sprintf("%v", err)).
+						Error("服务器异常")
+
+					// 设置响应
+					ctx.AbortWithStatus(m.StatusCode)
+
 					// In case of panic, set the context response data and status code to the ones specified in MiddlewareBuilder.
 					ctx.RespData = m.ErrMsg
 					ctx.RespStatusCode = m.StatusCode
+
+					// 添加请求ID以便跟踪
+					ctx.ResponseWriter.Header().Set("X-Request-ID", reqID)
+
 					// Use LogFunc to log the error along with context information.
 					m.LogFunc(ctx, err)
 				}
@@ -101,4 +178,36 @@ func (m *MiddlewareBuilder) Build() mist.Middleware {
 			next(ctx)
 		}
 	}
+}
+
+// NewRecoveryMiddleware 创建一个新的恢复中间件，使用默认配置
+func NewRecoveryMiddleware() mist.Middleware {
+	return InitMiddlewareBuilder(
+		http.StatusInternalServerError,
+		[]byte(`{"error":"服务器内部错误，请稍后重试"}`),
+	).Build()
+}
+
+// JSONRecoveryMiddleware 创建一个返回JSON错误的恢复中间件
+func JSONRecoveryMiddleware() mist.Middleware {
+	builder := InitMiddlewareBuilder(
+		http.StatusInternalServerError,
+		[]byte(`{"error":"服务器内部错误","timestamp":"0000-00-00T00:00:00Z"}`),
+	)
+
+	// 自定义记录函数，更新错误信息中的时间戳
+	builder.SetLogFunc(func(ctx *mist.Context, err any) {
+		// 获取当前时间戳
+		now := time.Now().UTC().Format(time.RFC3339)
+		// 构建带有当前时间戳的JSON错误响应
+		errorJSON := fmt.Sprintf(`{"error":"服务器内部错误","timestamp":"%s"}`, now)
+		// 更新响应数据
+		ctx.RespData = []byte(errorJSON)
+		// 设置content-type
+		ctx.ResponseWriter.Header().Set("Content-Type", "application/json")
+		// 记录错误
+		mist.Error("Recovery middleware caught panic: %v", err)
+	})
+
+	return builder.Build()
 }

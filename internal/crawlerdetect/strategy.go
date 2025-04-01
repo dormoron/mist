@@ -1,10 +1,6 @@
 package crawlerdetect
 
 import (
-	"github.com/dormoron/mist/internal/crawlerdetect/baidu"
-	"github.com/dormoron/mist/internal/crawlerdetect/bing"
-	"github.com/dormoron/mist/internal/crawlerdetect/google"
-	"github.com/dormoron/mist/internal/crawlerdetect/sogou"
 	"net"
 	"slices"
 	"strings"
@@ -30,21 +26,21 @@ const (
 // strategy based on the search engine involved.
 var strategyMap = map[string]Strategy{
 	// Baidu's strategy is initialized and associated with the "Baidu" key in the map.
-	Baidu: baidu.InitStrategy(),
+	Baidu: InitBaiduStrategy(),
 
 	// Bing's strategy is initialized and associated with the "Bing" key in the map.
-	Bing: bing.InitStrategy(),
+	Bing: InitBingStrategy(),
 
 	// Google's strategy is initialized and associated with the "Google" key in the map.
-	Google: google.InitStrategy(),
+	Google: InitGoogleStrategy(),
 
 	// SoGou's strategy is initialized and associated with the "SoGou" key in the map.
-	SoGou: sogou.InitStrategy(),
+	SoGou: InitSogouStrategy(),
 }
 
-// Strategy is an interface defining the methods that all crawler check strategies
+// BaiduStrategy is an interface defining the methods that all crawler check strategies
 // must implement. Different search engines may have their own implementation of
-// the Strategy interface to accommodate their specific methods for detecting crawlers.
+// the BaiduStrategy interface to accommodate their specific methods for detecting crawlers.
 type Strategy interface {
 	// CheckCrawler is a method that takes an IP address as input and returns a boolean
 	// and an error. The boolean indicates whether the given IP address belongs to a crawler
@@ -179,34 +175,34 @@ func (s *UniversalStrategy) matchHost(names []string) (string, bool) {
 	})
 }
 
-// InitCrawlerDetector is a function that retrieves a Strategy instance from a pre-defined
+// InitCrawlerDetector is a function that retrieves a BaiduStrategy instance from a pre-defined
 // map of strategies called strategyMap, based on the specified crawler string.
 // Each crawler in the map is associated with a specific initialization function for its strategy,
 // which is assumed to have been initialized earlier and stored in the strategyMap.
-// This function acts as a lookup to fetch the appropriate Strategy instance for a given crawler.
+// This function acts as a lookup to fetch the appropriate BaiduStrategy instance for a given crawler.
 //
 // Parameters:
 //
-//   - crawler: A string that identifies the crawler whose Strategy instance needs to be retrieved.
+//   - crawler: A string that identifies the crawler whose BaiduStrategy instance needs to be retrieved.
 //     It acts as a key to the strategyMap.
 //
 // Returns:
 //
-//   - Strategy: A Strategy instance associated with the provided crawler string. If the crawler string
+//   - BaiduStrategy: A BaiduStrategy instance associated with the provided crawler string. If the crawler string
 //     does not exist in the map, the function returns a nil value.
 //
 // Usage Notes:
 //
 //   - The strategyMap is a global variable where the key is a string representing the crawler's name,
-//     and the value is an instance of a Strategy implementation specific to that crawler.
+//     and the value is an instance of a BaiduStrategy implementation specific to that crawler.
 //   - The provided crawler string should match one of the keys in the strategyMap for the function
-//     to return a valid Strategy instance.
+//     to return a valid BaiduStrategy instance.
 //   - If the crawler string is not found in the strategyMap or is misspelled, the function will return
-//     a nil value, which the caller must check for before proceeding to use the returned Strategy instance.
+//     a nil value, which the caller must check for before proceeding to use the returned BaiduStrategy instance.
 //
 // Example:
 //
-//   - To retrieve the Strategy associated with 'Google', you would call:
+//   - To retrieve the BaiduStrategy associated with 'Google', you would call:
 //     googleStrategy := InitCrawlerDetector("Google")
 func InitCrawlerDetector(crawler string) Strategy {
 	return strategyMap[crawler]

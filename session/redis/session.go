@@ -3,10 +3,11 @@ package redis
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/dormoron/mist/internal/errs"
 	"github.com/dormoron/mist/session"
 	"github.com/redis/go-redis/v9"
-	"time"
 )
 
 // Store is a struct that encapsulates the necessary details to manage session
@@ -196,7 +197,7 @@ func InitStore(client redis.Cmdable, opts ...StoreOptions) *Store {
 //     or any previously set expiration time.
 //
 // Using this function promotes immutability and thread-safety by avoiding direct
-// modifications to the Store’s fields after its instantiation. Instead, it endorses
+// modifications to the Store's fields after its instantiation. Instead, it endorses
 // the use of designated functions to tailor the object upon creation.
 //
 // Usage:
@@ -603,19 +604,22 @@ end
 	return nil
 }
 
-// ID returns the identifier of the current session.
-//
-// This method does not accept any parameters, and it simply returns the ID property
-// from the Session struct. The ID typically uniquely identifies the session, which
-// can then be used to retrieve or associate session-specific data.
-//
-// Returns:
-// - string: The unique identifier of the session.
+// ID returns the unique identifier for this session.
 func (s *Session) ID() string {
-	// Return the 'id' field of the Session struct.
-	// This 'id' is the unique identifier for the session instance,
-	// which is useful for identifying the session in various operations.
 	return s.id
+}
+
+// Save saves any changes to the session.
+// For Redis sessions, this refreshes the key expiration.
+func (s *Session) Save() error {
+	// For Redis sessions, we might want to refresh the key expiration
+	// or perform any other operations to ensure the session is persisted
+	ctx := context.Background()
+	err := s.client.Expire(ctx, s.key, 30*time.Minute).Err()
+	if err != nil {
+		return fmt.Errorf("failed to save session: %w", err)
+	}
+	return nil
 }
 
 // redisKey constructs a Redis key using a given prefix and identifier.
@@ -644,4 +648,44 @@ func redisKey(prefix, id string) string {
 	// hyphen in between to form the Redis key.
 	// Example: If 'prefix' is "session" and 'id' is "user123", then it returns "session-user123".
 	return fmt.Sprintf("%s-%s", prefix, id)
+}
+
+// Options represents the configuration options for Redis session store.
+type Options struct {
+	Addr      string // Redis server address
+	Password  string // Redis server password
+	DB        int    // Redis database index
+	KeyPrefix string // Prefix for Redis keys
+}
+
+// NewStore creates a new Redis store for session data with the given options.
+func NewStore(options *Options) (*Store, error) {
+	if options == nil {
+		options = &Options{
+			Addr:      "localhost:6379",
+			Password:  "",
+			DB:        0,
+			KeyPrefix: "sessionId:",
+		}
+	}
+
+	// Create Redis client
+	client := redis.NewClient(&redis.Options{
+		Addr:     options.Addr,
+		Password: options.Password,
+		DB:       options.DB,
+	})
+
+	// Test connection
+	_, err := client.Ping(context.Background()).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
+	}
+
+	// Create store with default 30 minute expiration
+	return &Store{
+		prefix:     options.KeyPrefix,
+		client:     client,
+		expiration: 30 * time.Minute,
+	}, nil
 }

@@ -2,7 +2,7 @@ package mist
 
 import (
 	"encoding/json"
-	"github.com/dormoron/mist/internal/errs"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dormoron/mist/internal/errs"
 )
 
 // Context is a custom type designed to carry the state and data needed to process
@@ -865,4 +867,32 @@ func (c *Context) GetStringMapStringSlice(key string) (smss map[string][]string)
 		smss, _ = val.(map[string][]string) // Type assert the value to a map with string keys and slice of string values.
 	}
 	return
+}
+
+// RequestID 返回请求ID。如果请求头中没有X-Request-ID，则生成一个新的唯一ID
+func (c *Context) RequestID() string {
+	// 首先从请求头中查找X-Request-ID
+	requestID := c.Request.Header.Get("X-Request-ID")
+	if requestID != "" {
+		return requestID
+	}
+
+	// 如果在上下文的Keys中已经存在，直接返回
+	if id, exists := c.Get("request_id"); exists {
+		if rid, ok := id.(string); ok {
+			return rid
+		}
+	}
+
+	// 生成一个新的请求ID
+	// 使用时间戳和远程地址生成简单的ID
+	// 在生产环境中，你可能需要使用UUID库来生成更可靠的唯一ID
+	now := time.Now().UnixNano()
+	ip := c.ClientIP()
+	requestID = fmt.Sprintf("%s-%d", ip, now)
+
+	// 存储到上下文中以便重用
+	c.Set("request_id", requestID)
+
+	return requestID
 }
