@@ -1,8 +1,9 @@
 package security
 
 import (
-	"github.com/dormoron/mist"
 	"net/http"
+
+	"github.com/dormoron/mist"
 )
 
 // MiddlewareBuilder is a structure that helps build middleware for handling HTTP requests.

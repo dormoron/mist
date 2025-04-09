@@ -2,10 +2,11 @@ package redisess
 
 import (
 	"context"
+	"time"
+
 	"github.com/dormoron/mist"
 	"github.com/dormoron/mist/security"
 	"github.com/redis/go-redis/v9"
-	"time"
 )
 
 // Ensure that Session implements the security.Session interface.

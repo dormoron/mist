@@ -1,11 +1,12 @@
 package auth
 
 import (
+	"net/http"
+	"time"
+
 	"github.com/dormoron/mist"
 	"github.com/dormoron/mist/security/auth/kit"
 	"github.com/golang-jwt/jwt/v5"
-	"net/http"
-	"time"
 )
 
 // MiddlewareBuilder is a generic struct for constructing middleware for type T.

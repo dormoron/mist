@@ -2,13 +2,14 @@ package redisess
 
 import (
 	"errors"
+	"strings"
+	"time"
+
 	"github.com/dormoron/mist"
 	"github.com/dormoron/mist/security"
 	"github.com/dormoron/mist/security/auth"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-	"strings"
-	"time"
 )
 
 // keyRefreshToken is a constant string key used for storing the refresh token in the session.

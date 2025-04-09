@@ -120,8 +120,10 @@ func (s *Store) Generate(ctx context.Context, id string) (session.Session, error
 	// Initialize a new Session with the given ID and an empty concurrent-safe map
 	// to store session values.
 	sess := &Session{
-		id:     id,         // Set the session ID to the provided 'id'.
-		values: sync.Map{}, // Initialize a concurrent-safe map for storing session values.
+		id:         id,           // Set the session ID to the provided 'id'.
+		values:     sync.Map{},   // Initialize a concurrent-safe map for storing session values.
+		expiration: s.expiration, // Set the session expiration time.
+		modified:   false,        // Initialize the modified flag as false.
 	}
 
 	// Add the newly created session to the cache with the Store's expiration duration
@@ -198,68 +200,103 @@ func (s *Store) Remove(ctx context.Context, id string) error {
 	// concurrently, guaranteeing the safe deletion of a session.
 	s.mutex.Lock()
 	// Unlock the mutex when the function is complete. Using defer ensures the mutex is
-	// released even if an unexpected panic occurs, preventing deadlocks.
+	// always released, even if an error or panic occurs, preventing potential deadlocks.
 	defer s.mutex.Unlock()
 
-	// Delete the session with the given ID from the cache. The Delete method does not return
-	// an error, so there's no error handling needed here. If error possibilities are introduced
-	// in future implementations, they should be handled accordingly.
+	// Check if the session exists in the cache before attempting to delete it.
+	// This step is not strictly necessary since `Delete` is a no-op if the key doesn't
+	// exist, but it may be useful for auditing or debugging purposes.
+	_, exists := s.sessions.Get(id)
+	if !exists {
+		// If the session does not exist, there's nothing to delete. In this implementation,
+		// we choose to return nil to indicate that the operation was successful (the
+		// session doesn't exist as requested).
+		return nil
+	}
+
+	// Delete the session from the cache. Since the cache is a map-like structure, the
+	// deletion operation is a simple removal of the key-value pair with the given ID.
 	s.sessions.Delete(id)
 
-	// Return nil to indicate that the session has been successfully removed.
+	// Return nil to indicate successful removal of the session.
 	return nil
 }
 
-// Get retrieves the session associated with the provided ID from the store.
-// It features thread safety by using a read lock to allow multiple concurrent
-// read operations while preventing write operations, ensuring data consistency.
+// Get retrieves a session from the Store's session cache using the provided session ID.
+// It provides thread-safe access to session data through read-locking mechanisms.
 //
 // Parameters:
-//   - ctx context.Context: The context in which the session retrieval is taking
-//     place. The context could be used to carry deadlines, cancellation signals,
-//     and other request-scoped values, but it's not used within this function.
-//   - id string: The unique identifier for the session we want to retrieve.
+//   - ctx context.Context: The context in which the session retrieval is requested. The context
+//     can carry deadlines, cancellation signals, and other request-scoped values across API
+//     boundaries. However, the method does not utilize these context features in its current
+//     implementation.
+//   - id string: The unique identifier used to look up the session in the session cache.
 //
 // Returns:
-// - session.Session: The session object associated with the ID, if found.
-// - error: An error if no session is found with the given ID, otherwise nil.
+//   - session.Session: The retrieved session object if found.
+//   - error: An error is returned when the session with the specified ID cannot be found or
+//     if there are issues during the retrieval process.
 //
-// If future versions of the Get function introduce returnable errors in other
-// situations, this documentation and implementation may need to be updated
-// accordingly.
+// The method assumes that the errs.ErrIdSessionNotFound function returns an appropriate
+// error when a session ID doesn't exist in the cache.
 func (s *Store) Get(ctx context.Context, id string) (session.Session, error) {
-	// Use a read lock (RLock) to allow for concurrent read access to the sessions
-	// cache by multiple goroutines, while still preventing any writes, maintaining
-	// data consistency and integrity.
+	// Acquire a read lock to allow concurrent reads but prevent concurrent writes, ensuring
+	// that the session cache remains consistent during the read operation.
 	s.mutex.RLock()
-	// Ensure the read lock is released after this function's execution completes.
-	// This is essential to ensure that it doesn't block subsequent write operations.
+	// Release the read lock when the function returns. Using defer ensures the lock is
+	// always released, even if an error occurs or the function returns early.
 	defer s.mutex.RUnlock()
 
-	// Attempt to retrieve the session using the provided ID.
-	sess, ok := s.sessions.Get(id)
+	// Attempt to retrieve the session with the given ID from the session cache.
+	val, ok := s.sessions.Get(id)
 	if !ok {
-		// If the session is not found, return an appropriate error. Assumes that
-		// errs.ErrSessionNotFound is a function returning a standardized error message.
-		return nil, errs.ErrSessionNotFound()
+		// If the session is not found in the cache, return an error indicating that the
+		// session with the given ID does not exist.
+		return nil, errs.ErrIdSessionNotFound()
 	}
 
-	// Assert that the interface{} type returned from sessions.Get is indeed a *Session.
-	// This is necessary because the underlying data structure is generic and can store
-	// various types.
-	return sess.(*Session), nil
+	// If the session is found, cast it to the session.Session type and return it along
+	// with a nil error to indicate successful retrieval.
+	return val.(session.Session), nil
 }
 
-// Session is a data structure that represents a user session in a concurrent environment.
-// It stores session-specific information, such as a unique session ID and session values,
-// in a thread-safe manner, ensuring that multiple goroutines can interact with the values
-// concurrently without causing race conditions.
+// GC performs garbage collection on expired sessions in the session store.
+// This method triggers the cache's internal garbage collection mechanism to
+// clean up expired sessions, freeing up memory and resources.
+//
+// Parameters:
+//   - ctx context.Context: The context in which the garbage collection is requested.
+//     This context can be used to control the execution of the garbage collection,
+//     but is not utilized in the current implementation.
+//
+// Returns:
+//   - error: An error if the garbage collection operation fails; otherwise, nil
+//     indicating success.
+//
+// Note that go-cache has its own internal garbage collection that runs on a separate
+// goroutine, so this method primarily forces an immediate clean-up cycle. For most
+// applications, relying on the automatic garbage collection is sufficient.
+func (s *Store) GC(ctx context.Context) error {
+	// Lock the store to prevent concurrent operations during garbage collection
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// Force the cache to delete all expired items immediately
+	s.sessions.DeleteExpired()
+
+	return nil
+}
+
+// Session represents an in-memory session object that stores and retrieves
+// user-specific data with a unique identifier. It implements the session.Session
+// interface and provides thread-safe operations on session data.
 //
 // Fields:
-//   - id string: The unique identifier of the session, used to retrieve or differentiate the session.
-//   - values sync.Map: A thread-safe map provided by the sync package, used to store session-specific
-//     values. sync.Map uses fine-grained locking which is more efficient for cases where
-//     multiple goroutines are reading, writing, and iterating over entries in the map simultaneously.
+//   - id: A unique identifier for the session, used to reference it across HTTP requests.
+//   - values: A thread-safe map that stores key-value pairs of session data.
+//   - modified: A flag to track whether the session has been modified since creation.
+//   - expiration: The duration for which the session is valid.
+//   - maxAge: Maximum lifetime of the session in seconds.
 type Session struct {
 	// id holds the unique identifier for the session, which is typically generated when
 	// a new session is created and persists until the session is ended or times out.
@@ -269,68 +306,160 @@ type Session struct {
 	// scenarios where the entry is only written once but read many times, as it's
 	// common with session data.
 	values sync.Map
+
+	// modified indicates whether the session has been modified
+	modified bool
+
+	// expiration specifies how long the session is valid for
+	expiration time.Duration
+
+	// maxAge specifies the maximum lifetime of the session in seconds
+	maxAge int
 }
 
-// Get retrieves a value from the session based on a provided key. It utilizes the sync.Map's Load method
-// to safely access the value, ensuring that simultaneous reads/writes to the values Map are properly synchronized.
+// Get retrieves a value from the session based on the provided key.
+// This method provides thread-safe access to session data.
 //
 // Parameters:
-//   - ctx context.Context: The context for the operation. While it is a common pattern to include context
-//     for potential future use in cancellations and timeouts, it is not currently used in this method.
-//   - key string: The key associated with the value to retrieve from the session.
+//   - ctx context.Context: The context in which the retrieval is requested. The context
+//     can carry deadlines, cancellation signals, and other request-scoped values across API
+//     boundaries. However, this method does not utilize these context features.
+//   - key string: The identifier used to retrieve the corresponding value from the session's
+//     data store.
 //
 // Returns:
-//   - any: The value associated with the key if it is found within the session's values map.
-//   - error: An error if the key does not exist in the session's values map. ErKeyNotFound is returned
-//     with the missing key as its parameter.
+//   - any: The retrieved value associated with the key. If the key is not found, nil is returned.
+//   - error: An error if the retrieval operation fails; otherwise, nil is returned.
+//
+// This method is safe for concurrent use by multiple goroutines as it uses the thread-safe
+// sync.Map to store session values.
 func (s *Session) Get(ctx context.Context, key string) (any, error) {
-	// Attempt to retrieve the value from the session's values map using the provided key.
-	val, ok := s.values.Load(key)
-
-	// Check if the key was found in the map.
+	// Attempt to load the value associated with the given key from the session's data store.
+	// The Load method of sync.Map provides thread-safe access to the map's contents.
+	value, ok := s.values.Load(key)
 	if !ok {
-		// If the key is not found, use errs.ErrKeyNotFound to return an error with the key.
-		// ErrKeyNotFound should be a predefined error type in the errs package that encapsulates
-		// the error scenario where a key is not found within the map.
-		return nil, errs.ErrKeyNotFound(key)
+		// If the key is not found, return nil without an error. This allows callers to
+		// distinguish between a key not present (nil, nil) and an error condition (nil, err).
+		return nil, nil
 	}
 
-	// If the key is found, return the corresponding value.
-	return val, nil
+	// Return the value associated with the key and nil for the error to indicate successful retrieval.
+	return value, nil
 }
 
-// Set assigns a value to a specific key within the session. It leverages the Store method
-// from sync.Map for a safe concurrent write operation. As of this implementation, it always
-// returns a nil error, denoting a successful operation.
+// Set stores a value in the session using the provided key. If the key already exists,
+// the value is updated. This method ensures thread-safe modification of session data.
 //
 // Parameters:
-//   - ctx context.Context: The context for the operation. Although it is often included to handle
-//     request-scoped values, cancellations, and timeouts, it is not utilized in this method at present.
-//   - key string: The key to associate with the value within the session's values map.
-//   - value any: The value to be associated with the key.
+//   - ctx context.Context: The context in which the storage is requested. The context
+//     can carry deadlines, cancellation signals, and other request-scoped values across API
+//     boundaries. However, this method does not utilize these context features.
+//   - key string: The identifier under which the value should be stored in the session's
+//     data store.
+//   - value any: The data to be stored in the session. This can be of any type.
 //
 // Returns:
-//   - error: nil, indicating that the value was successfully stored. If future implementations introduce
-//     potential errors, the method's signature and documentation would need corresponding updates.
+//   - error: An error if the storage operation fails; otherwise, nil is returned.
+//
+// This method is safe for concurrent use by multiple goroutines as it uses the thread-safe
+// sync.Map to store session values.
 func (s *Session) Set(ctx context.Context, key string, value any) error {
-	// Store the value in the session's values map with the specified key. The Store method ensures
-	// that the write operation is safe to use concurrently with other reads and writes.
+	// Store the key-value pair in the session's data store. The Store method of sync.Map
+	// provides thread-safe access for writing to the map.
 	s.values.Store(key, value)
 
-	// As per the current implementation, there are no failure scenarios that would result in
-	// an error being returned. Thus, nil is returned to indicate success.
+	// Mark the session as modified
+	s.modified = true
+
 	return nil
 }
 
-// ID returns the unique session identifier for this session.
+// Delete removes a key-value pair from the session. If the key does not exist,
+// this operation is a no-op.
+//
+// Parameters:
+//   - ctx context.Context: The context in which the deletion is requested. This context
+//     is not used in the current implementation but is included for interface compliance.
+//   - key string: The identifier of the key-value pair to be removed from the session.
+//
+// Returns:
+//   - error: An error if the deletion operation fails; otherwise, nil is returned.
+//
+// This method is safe for concurrent use by multiple goroutines.
+func (s *Session) Delete(ctx context.Context, key string) error {
+	// Delete the key from the session's data store
+	s.values.Delete(key)
+
+	// Mark the session as modified
+	s.modified = true
+
+	return nil
+}
+
+// ID returns the unique identifier of the session. This identifier is used to
+// associate the session with a particular user or client across multiple HTTP requests.
+//
+// Returns:
+//   - string: The unique identifier of the session.
+//
+// This method is safe for concurrent use by multiple goroutines.
 func (s *Session) ID() string {
+	// Simply return the session's ID field.
 	return s.id
 }
 
-// Save saves any changes to the session.
-// For memory sessions, this is a no-op as changes are saved immediately.
+// Save persists any changes made to the session. In this in-memory implementation,
+// there is no need for explicit persistence, so this method simply resets the
+// modified flag.
+//
+// Returns:
+//   - error: An error if the save operation fails; otherwise, nil is returned to
+//     indicate success.
+//
+// This method is safe for concurrent use by multiple goroutines.
 func (s *Session) Save() error {
-	// Memory session values are saved immediately when Set is called
-	// so no additional saving is needed
+	// Reset the modified flag to indicate that the session has been saved
+	s.modified = false
 	return nil
+}
+
+// IsModified returns whether the session has been modified since it was
+// last saved or created.
+//
+// Returns:
+//   - bool: true if the session has been modified, false otherwise.
+//
+// This method is safe for concurrent use by multiple goroutines.
+func (s *Session) IsModified() bool {
+	return s.modified
+}
+
+// SetMaxAge sets the maximum lifetime of the session in seconds.
+//
+// Parameters:
+//   - seconds: The maximum lifetime of the session in seconds. A positive value
+//     sets the session to expire after the specified number of seconds. A negative
+//     value means the session expires when the browser is closed. A zero value
+//     deletes the session immediately.
+//
+// This method is safe for concurrent use by multiple goroutines.
+func (s *Session) SetMaxAge(seconds int) {
+	s.maxAge = seconds
+
+	// If maxAge is set to 0 or negative, we might want to adjust the expiration
+	if seconds <= 0 {
+		// For in-memory sessions, we could set a very short expiration time
+		// for sessions that should be deleted immediately
+		if seconds == 0 {
+			s.expiration = time.Second
+		}
+		// For sessions that should expire when the browser closes,
+		// we keep the default expiration
+	} else {
+		// For positive values, set the expiration to the specified number of seconds
+		s.expiration = time.Duration(seconds) * time.Second
+	}
+
+	// Mark the session as modified
+	s.modified = true
 }

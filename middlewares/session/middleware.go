@@ -22,6 +22,8 @@ type MiddlewareBuilder struct {
 	cookieSameSite http.SameSite
 	maxAge         int
 	sessionKey     string
+	enableAutoGC   bool
+	gcInterval     time.Duration
 }
 
 // NewMemoryStore 创建基于内存的会话中间件
@@ -39,6 +41,8 @@ func NewMemoryStore(opts ...Option) (*MiddlewareBuilder, error) {
 		cookieSameSite: http.SameSiteStrictMode,
 		maxAge:         3600, // 1小时
 		sessionKey:     "session",
+		enableAutoGC:   true,
+		gcInterval:     10 * time.Minute,
 	}
 
 	manager, err := session.NewManager(store, builder.maxAge)
@@ -49,18 +53,27 @@ func NewMemoryStore(opts ...Option) (*MiddlewareBuilder, error) {
 	// 创建Cookie传播器
 	propagator := cookie.NewPropagator(builder.cookieName,
 		cookie.WithPath(builder.cookiePath),
+		cookie.WithDomain(builder.cookieDomain),
 		cookie.WithMaxAge(builder.maxAge),
 		cookie.WithSecure(builder.cookieSecure),
 		cookie.WithHTTPOnly(builder.cookieHTTPOnly),
 		cookie.WithSameSite(builder.cookieSameSite),
 	)
 	manager.Propagator = propagator
+	manager.CtxSessionKey = builder.sessionKey
 
 	builder.manager = manager
 
 	// 应用选项
 	for _, opt := range opts {
 		opt(builder)
+	}
+
+	// 启用自动垃圾回收（如果配置为启用）
+	if builder.enableAutoGC {
+		if err := manager.EnableAutoGC(builder.gcInterval); err != nil {
+			mist.Warn("启用会话自动垃圾回收失败: %v", err)
+		}
 	}
 
 	return builder, nil
@@ -88,6 +101,8 @@ func NewRedisStore(addr string, password string, db int, keyPrefix string, opts 
 		cookieSameSite: http.SameSiteStrictMode,
 		maxAge:         3600, // 1小时
 		sessionKey:     "session",
+		enableAutoGC:   true,
+		gcInterval:     10 * time.Minute,
 	}
 
 	manager, err := session.NewManager(store, builder.maxAge)
@@ -98,18 +113,27 @@ func NewRedisStore(addr string, password string, db int, keyPrefix string, opts 
 	// 创建Cookie传播器
 	propagator := cookie.NewPropagator(builder.cookieName,
 		cookie.WithPath(builder.cookiePath),
+		cookie.WithDomain(builder.cookieDomain),
 		cookie.WithMaxAge(builder.maxAge),
 		cookie.WithSecure(builder.cookieSecure),
 		cookie.WithHTTPOnly(builder.cookieHTTPOnly),
 		cookie.WithSameSite(builder.cookieSameSite),
 	)
 	manager.Propagator = propagator
+	manager.CtxSessionKey = builder.sessionKey
 
 	builder.manager = manager
 
 	// 应用选项
 	for _, opt := range opts {
 		opt(builder)
+	}
+
+	// 启用自动垃圾回收（如果配置为启用）
+	if builder.enableAutoGC {
+		if err := manager.EnableAutoGC(builder.gcInterval); err != nil {
+			mist.Warn("启用会话自动垃圾回收失败: %v", err)
+		}
 	}
 
 	return builder, nil
@@ -174,6 +198,31 @@ func WithMaxAge(maxAge int) Option {
 func WithSessionKey(key string) Option {
 	return func(b *MiddlewareBuilder) {
 		b.sessionKey = key
+		if b.manager != nil {
+			b.manager.CtxSessionKey = key
+		}
+	}
+}
+
+// WithAutoGC 设置是否启用自动垃圾回收
+func WithAutoGC(enable bool, interval time.Duration) Option {
+	return func(b *MiddlewareBuilder) {
+		b.enableAutoGC = enable
+		if interval > 0 {
+			b.gcInterval = interval
+		}
+
+		if b.manager != nil {
+			if enable {
+				if err := b.manager.EnableAutoGC(b.gcInterval); err != nil {
+					mist.Warn("启用会话自动垃圾回收失败: %v", err)
+				}
+			} else {
+				if err := b.manager.DisableAutoGC(); err != nil {
+					mist.Warn("禁用会话自动垃圾回收失败: %v", err)
+				}
+			}
+		}
 	}
 }
 
@@ -184,22 +233,10 @@ func (b *MiddlewareBuilder) Build() mist.Middleware {
 			var sess session.Session
 			var err error
 
-			// 尝试从请求中获取会话ID
-			sessID, err := b.manager.Propagator.Extract(ctx.Request)
-			if err == nil && sessID != "" {
-				// 尝试加载已有会话
-				sess, err = b.manager.Get(ctx.Request.Context(), sessID)
-				if err != nil {
-					// 会话无效或过期，初始化新会话
-					sess, err = b.manager.InitSession(ctx)
-					if err != nil {
-						mist.Error("初始化会话失败: %v", err)
-						next(ctx)
-						return
-					}
-				}
-			} else {
-				// 没有会话ID，初始化新会话
+			// 尝试获取已有会话
+			sess, err = b.manager.GetSession(ctx)
+			if err != nil {
+				// 会话不存在或已过期，初始化新会话
 				sess, err = b.manager.InitSession(ctx)
 				if err != nil {
 					mist.Error("初始化会话失败: %v", err)
@@ -214,9 +251,11 @@ func (b *MiddlewareBuilder) Build() mist.Middleware {
 			// 继续处理请求
 			next(ctx)
 
-			// 保存会话更改
-			if err := sess.Save(); err != nil {
-				mist.Error("保存会话失败: %v", err)
+			// 如果会话被修改，保存会话更改
+			if sess.IsModified() {
+				if err := sess.Save(); err != nil {
+					mist.Error("保存会话失败: %v", err)
+				}
 			}
 		}
 	}
@@ -238,16 +277,12 @@ func DefaultGetSession(ctx *mist.Context) (session.Session, bool) {
 	return GetSession(ctx, "session")
 }
 
-// SessionCleanupTask 返回一个定期清理过期会话的函数
-func SessionCleanupTask(manager *session.Manager, interval time.Duration) func() {
-	return func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+// GetManager 获取会话管理器
+func (b *MiddlewareBuilder) GetManager() *session.Manager {
+	return b.manager
+}
 
-		for range ticker.C {
-			if err := manager.GC(); err != nil {
-				mist.Error("清理过期会话失败: %v", err)
-			}
-		}
-	}
+// RunGC 手动运行垃圾回收
+func (b *MiddlewareBuilder) RunGC() error {
+	return b.manager.RunGC()
 }

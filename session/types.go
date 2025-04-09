@@ -27,6 +27,8 @@ import (
 //   - Get(ctx context.Context, id string) (Session, error): Retrieves the session associated with the given
 //     identifier 'id'. It returns the Session object if it exists and any error that occurs during the retrieval.
 //     This is called whenever an application needs to access the session data for a request.
+//   - GC(ctx context.Context) error: Performs garbage collection on expired sessions to free up resources.
+//     This should be called periodically to clean up stale session data.
 //
 // The 'Session' type mentioned in the methods is expected to be an interface or a struct that encapsulates the
 // session data. The specific implementation of 'Session' will depend on the application's requirements.
@@ -58,6 +60,10 @@ import (
 //	    // ... retrieve a session based on the id ...
 //	}
 //
+//	func (s *InMemoryStore) GC(ctx context.Context) error {
+//	    // ... garbage collect expired sessions ...
+//	}
+//
 // The above interface abstraction enables one to switch session store implementations with minimal changes to
 // the overall application logic, providing flexibility and scalability for session management strategies.
 type Store interface {
@@ -65,6 +71,7 @@ type Store interface {
 	Refresh(ctx context.Context, id string) error             // Extend a session's life
 	Remove(ctx context.Context, id string) error              // Delete an existing session
 	Get(ctx context.Context, id string) (Session, error)      // Retrieve a session's data
+	GC(ctx context.Context) error                             // Garbage collect expired sessions
 }
 
 // Session is an interface that defines the contract for a session management system.
@@ -84,10 +91,17 @@ type Store interface {
 //     If the 'key' already exists, the value should be overwritten. As with 'Get', any context-related
 //     behavior should be handled within this method. If there is an error while setting the value (e.g.,
 //     write failure), an error should be reported back to the caller.
+//   - Delete(ctx context.Context, key string) error: Removes a value associated with 'key' from the session.
+//     If the key does not exist, this operation should be a no-op and not return an error.
 //   - ID() string: This method returns the unique identifier for the session. Typically, this identifier
 //     is generated when the session is first created and remains constant throughout the session's
 //     lifecycle. The ID is used to link a session to a specific user or interaction sequence.
-//   - Save() error: Saves any changes to the session.
+//   - Save() error: Saves any changes to the session. This may be a no-op for some implementations
+//     if changes are immediately persisted.
+//   - IsModified() bool: Returns whether the session has been modified since it was last saved.
+//     This is useful for optimizations to avoid unnecessary storage operations.
+//   - SetMaxAge(seconds int): Sets the maximum lifetime of the session in seconds.
+//     This can be used to control session expiration time based on application logic.
 //
 // Usage and Implementation Notes:
 // The 'Session' type assumes 'any' type for stored values, allowing for flexibility in what kinds of
@@ -104,6 +118,7 @@ type Store interface {
 //	    id string
 //	    values sync.Map  // Thread-safe map to store session values
 //	    expiry time.Time  // Expiration time of the session
+//	    modified bool    // Flag to indicate if the session has been modified
 //	    // ... additional session properties and mutexes ...
 //	}
 //
@@ -113,10 +128,32 @@ type Store interface {
 //
 //	func (s *InMemorySession) Set(ctx context.Context, key string, value any) error {
 //	    // ... set value in the session ...
+//	    s.modified = true
+//	    return nil
+//	}
+//
+//	func (s *InMemorySession) Delete(ctx context.Context, key string) error {
+//	    // ... delete value from the session ...
+//	    s.modified = true
+//	    return nil
 //	}
 //
 //	func (s *InMemorySession) ID() string {
 //	    return s.id
+//	}
+//
+//	func (s *InMemorySession) Save() error {
+//	    // ... save session data ...
+//	    s.modified = false
+//	    return nil
+//	}
+//
+//	func (s *InMemorySession) IsModified() bool {
+//	    return s.modified
+//	}
+//
+//	func (s *InMemorySession) SetMaxAge(seconds int) {
+//	    // ... set session max age ...
 //	}
 //
 // The above example provides a simple template for how session data can be managed within a
@@ -124,8 +161,11 @@ type Store interface {
 type Session interface {
 	Get(ctx context.Context, key string) (any, error)     // Retrieve a value from the session
 	Set(ctx context.Context, key string, value any) error // Store a value in the session
+	Delete(ctx context.Context, key string) error         // Remove a value from the session
 	ID() string                                           // Return the session's unique identifier
 	Save() error                                          // Save any changes to the session
+	IsModified() bool                                     // Check if the session has been modified
+	SetMaxAge(seconds int)                                // Set session's maximum lifetime
 }
 
 // The Propagator interface defines methods responsible for managing the propagation

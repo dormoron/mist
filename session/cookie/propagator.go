@@ -405,12 +405,18 @@ func (p *CookiePropagator) Remove(writer http.ResponseWriter) error {
 		Value:    "",
 		Path:     p.path,
 		Domain:   p.domain,
-		MaxAge:   -1,
-		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,              // 设置为-1，表示立即删除cookie
+		Expires:  time.Unix(0, 0), // 设置过期时间为过去
 		Secure:   p.secure,
 		HttpOnly: p.httpOnly,
 		SameSite: p.sameSite,
 	}
 	http.SetCookie(writer, cookie)
 	return nil
+}
+
+// SetMaxAge 设置Cookie的最大有效期（秒）
+// 这个方法允许动态调整现有CookiePropagator的Cookie有效期
+func (p *CookiePropagator) SetMaxAge(maxAge int) {
+	p.maxAge = maxAge
 }
