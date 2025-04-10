@@ -3,6 +3,7 @@ package blocklist
 import (
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,13 +13,17 @@ import (
 // IPRecord 表示IP访问记录
 type IPRecord struct {
 	// IP地址
-	IP string
+	IP string `json:"ip"`
 	// LastActivity 最后活动时间
-	LastActivity time.Time
+	LastActivity time.Time `json:"last_activity"`
 	// FailedAttempts 失败尝试次数
-	FailedAttempts int
+	FailedAttempts int `json:"failed_attempts"`
 	// BlockedUntil 封禁解除时间
-	BlockedUntil time.Time
+	BlockedUntil time.Time `json:"blocked_until"`
+	// BlockCount 封禁次数，用于递增封禁时长
+	BlockCount int `json:"block_count"`
+	// CountryCode 国家/地区代码
+	CountryCode string `json:"country_code,omitempty"`
 }
 
 // BlocklistConfig 黑名单配置
@@ -37,12 +42,24 @@ type BlocklistConfig struct {
 	WhitelistIPs []string
 	// whitelistMap 白名单IP映射表（内部使用）
 	whitelistMap map[string]bool
+	// Storage 存储实现，默认为内存存储
+	Storage Storage
+	// UseProgressiveBlocking 是否使用递增封禁时长
+	UseProgressiveBlocking bool
+	// ProgressiveBlockingFactor 递增封禁时长因子
+	ProgressiveBlockingFactor float64
+	// MaxBlockDuration 最大封禁时长
+	MaxBlockDuration time.Duration
+	// GeoRestriction 地理位置限制，可选
+	GeoRestriction *GeoRestriction
+	// AllowPrivateIPs 是否允许私有IP地址
+	AllowPrivateIPs bool
 }
 
 // Manager IP黑名单管理器
 type Manager struct {
-	records map[string]*IPRecord
 	config  BlocklistConfig
+	storage Storage
 	mu      sync.RWMutex
 	done    chan struct{}
 }
@@ -51,15 +68,16 @@ type Manager struct {
 func NewManager(options ...func(*BlocklistConfig)) *Manager {
 	// 默认配置
 	config := BlocklistConfig{
-		MaxFailedAttempts: 5,
-		BlockDuration:     15 * time.Minute,
-		ClearInterval:     5 * time.Minute,
-		RecordExpiry:      24 * time.Hour,
-		OnBlocked: func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte("您的IP已被暂时封禁，请稍后再试"))
-		},
-		WhitelistIPs: []string{},
+		MaxFailedAttempts:         5,
+		BlockDuration:             15 * time.Minute,
+		ClearInterval:             5 * time.Minute,
+		RecordExpiry:              24 * time.Hour,
+		OnBlocked:                 defaultOnBlocked,
+		WhitelistIPs:              []string{},
+		UseProgressiveBlocking:    true,
+		ProgressiveBlockingFactor: 2.0,
+		MaxBlockDuration:          7 * 24 * time.Hour, // 最长封禁1周
+		AllowPrivateIPs:           true,
 	}
 
 	// 应用自定义选项
@@ -73,9 +91,14 @@ func NewManager(options ...func(*BlocklistConfig)) *Manager {
 		config.whitelistMap[ip] = true
 	}
 
+	// 如果没有提供存储，使用内存存储
+	if config.Storage == nil {
+		config.Storage = NewMemoryStorage()
+	}
+
 	manager := &Manager{
-		records: make(map[string]*IPRecord),
 		config:  config,
+		storage: config.Storage,
 		done:    make(chan struct{}),
 	}
 
@@ -83,6 +106,12 @@ func NewManager(options ...func(*BlocklistConfig)) *Manager {
 	go manager.cleanupLoop()
 
 	return manager
+}
+
+// 默认的处理函数
+func defaultOnBlocked(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusForbidden)
+	w.Write([]byte("您的IP已被暂时封禁，请稍后再试"))
 }
 
 // cleanupLoop 定期清理过期的记录
@@ -102,14 +131,18 @@ func (m *Manager) cleanupLoop() {
 
 // cleanup 清理过期记录
 func (m *Manager) cleanup() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// 获取所有记录
+	records, err := m.storage.ListIPRecords()
+	if err != nil {
+		// 记录错误但继续运行
+		return
+	}
 
 	now := time.Now()
-	for ip, record := range m.records {
+	for _, record := range records {
 		// 如果封禁已过期且最后活动时间超过记录过期时间，则删除记录
 		if record.BlockedUntil.Before(now) && record.LastActivity.Add(m.config.RecordExpiry).Before(now) {
-			delete(m.records, ip)
+			m.storage.DeleteIPRecord(record.IP)
 		}
 	}
 }
@@ -117,53 +150,70 @@ func (m *Manager) cleanup() {
 // Stop 停止黑名单管理器
 func (m *Manager) Stop() {
 	close(m.done)
+	m.storage.Close()
 }
 
 // RecordSuccess 记录成功的尝试，重置失败计数
 func (m *Manager) RecordSuccess(ip string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	// 如果IP在白名单中，则不记录
 	if m.config.whitelistMap[ip] {
 		return
 	}
 
-	record, exists := m.records[ip]
-	if !exists {
+	// 如果是私有IP且配置允许，则不记录
+	if !m.config.AllowPrivateIPs && isPrivateIP(ip) {
+		return
+	}
+
+	record, err := m.storage.GetIPRecord(ip)
+	if err != nil {
+		// 记录错误但继续运行
+		return
+	}
+
+	if record == nil {
 		// 如果记录不存在，创建新记录
-		m.records[ip] = &IPRecord{
+		record = &IPRecord{
 			IP:             ip,
 			LastActivity:   time.Now(),
 			FailedAttempts: 0,
 		}
-		return
+	} else {
+		// 更新记录
+		record.LastActivity = time.Now()
+		record.FailedAttempts = 0
 	}
 
-	// 更新记录
-	record.LastActivity = time.Now()
-	record.FailedAttempts = 0
+	m.storage.SaveIPRecord(record)
 }
 
 // RecordFailure 记录失败的尝试
 func (m *Manager) RecordFailure(ip string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	// 如果IP在白名单中，则不记录
 	if m.config.whitelistMap[ip] {
 		return false
 	}
 
+	// 如果是私有IP且配置允许，则不记录
+	if !m.config.AllowPrivateIPs && isPrivateIP(ip) {
+		return false
+	}
+
 	now := time.Now()
-	record, exists := m.records[ip]
-	if !exists {
+	record, err := m.storage.GetIPRecord(ip)
+	if err != nil {
+		// 记录错误但继续运行
+		return false
+	}
+
+	if record == nil {
 		// 如果记录不存在，创建新记录
-		m.records[ip] = &IPRecord{
+		record = &IPRecord{
 			IP:             ip,
 			LastActivity:   now,
 			FailedAttempts: 1,
 		}
+		m.storage.SaveIPRecord(record)
 		return false
 	}
 
@@ -178,25 +228,65 @@ func (m *Manager) RecordFailure(ip string) bool {
 
 	// 如果失败次数超过阈值，则封禁IP
 	if record.FailedAttempts >= m.config.MaxFailedAttempts {
-		record.BlockedUntil = now.Add(m.config.BlockDuration)
+		// 如果使用递增封禁时长
+		if m.config.UseProgressiveBlocking {
+			// 增加封禁次数
+			record.BlockCount++
+			// 计算封禁时长
+			blockDuration := time.Duration(float64(m.config.BlockDuration) *
+				pow(m.config.ProgressiveBlockingFactor, float64(record.BlockCount-1)))
+
+			// 确保不超过最大封禁时长
+			if blockDuration > m.config.MaxBlockDuration {
+				blockDuration = m.config.MaxBlockDuration
+			}
+
+			record.BlockedUntil = now.Add(blockDuration)
+		} else {
+			record.BlockedUntil = now.Add(m.config.BlockDuration)
+		}
+
+		// 重置失败计数
+		record.FailedAttempts = 0
+		m.storage.SaveIPRecord(record)
 		return true
 	}
 
+	m.storage.SaveIPRecord(record)
 	return false
+}
+
+// 计算a的b次方
+func pow(a, b float64) float64 {
+	result := 1.0
+	for i := 0; i < int(b); i++ {
+		result *= a
+	}
+	return result
 }
 
 // IsBlocked 检查IP是否被封禁
 func (m *Manager) IsBlocked(ip string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	// 如果IP在白名单中，则不封禁
 	if m.config.whitelistMap[ip] {
 		return false
 	}
 
-	record, exists := m.records[ip]
-	if !exists {
+	// 如果是私有IP且配置允许，则不封禁
+	if !m.config.AllowPrivateIPs && isPrivateIP(ip) {
+		return false
+	}
+
+	// 检查地理位置限制
+	if m.config.GeoRestriction != nil {
+		restricted, err := m.config.GeoRestriction.IsIPRestricted(ip)
+		if err == nil && restricted {
+			return true
+		}
+	}
+
+	record, err := m.storage.GetIPRecord(ip)
+	if err != nil || record == nil {
 		return false
 	}
 
@@ -205,42 +295,75 @@ func (m *Manager) IsBlocked(ip string) bool {
 
 // BlockIP 手动封禁IP
 func (m *Manager) BlockIP(ip string, duration time.Duration) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	// 如果IP在白名单中，则不封禁
 	if m.config.whitelistMap[ip] {
 		return
 	}
 
+	// 如果是私有IP且配置允许，则不封禁
+	if !m.config.AllowPrivateIPs && isPrivateIP(ip) {
+		return
+	}
+
 	// 获取记录，如果不存在则创建
-	record, exists := m.records[ip]
-	if !exists {
+	record, err := m.storage.GetIPRecord(ip)
+	if err != nil {
+		// 记录错误但继续运行
+		return
+	}
+
+	if record == nil {
 		record = &IPRecord{
 			IP:             ip,
 			LastActivity:   time.Now(),
 			FailedAttempts: m.config.MaxFailedAttempts,
+			BlockCount:     1,
 		}
-		m.records[ip] = record
+	} else {
+		// 增加封禁次数
+		record.BlockCount++
 	}
 
 	// 设置封禁时间
 	record.BlockedUntil = time.Now().Add(duration)
+	m.storage.SaveIPRecord(record)
 }
 
 // UnblockIP 手动解除IP封禁
 func (m *Manager) UnblockIP(ip string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	record, exists := m.records[ip]
-	if !exists {
+	record, err := m.storage.GetIPRecord(ip)
+	if err != nil || record == nil {
 		return
 	}
 
 	// 重置记录
 	record.FailedAttempts = 0
 	record.BlockedUntil = time.Time{}
+	m.storage.SaveIPRecord(record)
+}
+
+// GetIPInfo 获取IP详细信息
+func (m *Manager) GetIPInfo(ip string) (*IPRecord, error) {
+	record, err := m.storage.GetIPRecord(ip)
+	if err != nil {
+		return nil, err
+	}
+
+	// 如果记录存在且配置了地理位置限制，获取国家信息
+	if record != nil && m.config.GeoRestriction != nil && record.CountryCode == "" {
+		countryCode, err := m.config.GeoRestriction.GetCountryCode(ip)
+		if err == nil {
+			record.CountryCode = countryCode
+			m.storage.SaveIPRecord(record)
+		}
+	}
+
+	return record, nil
+}
+
+// ListBlockedIPs 列出所有被封禁的IP
+func (m *Manager) ListBlockedIPs() ([]*IPRecord, error) {
+	return m.storage.ListBlockedIPs()
 }
 
 // Middleware 创建IP黑名单中间件
@@ -251,7 +374,6 @@ func (m *Manager) Middleware() func(http.Handler) http.Handler {
 
 			// 检查IP是否被封禁
 			if m.IsBlocked(ip) {
-				// 调用封禁处理函数
 				m.config.OnBlocked(w, r)
 				return
 			}
@@ -261,7 +383,7 @@ func (m *Manager) Middleware() func(http.Handler) http.Handler {
 	}
 }
 
-// MistBlocklistConfig Mist框架的IP黑名单配置
+// MistBlocklistConfig Mist框架的黑名单配置
 type MistBlocklistConfig struct {
 	// 原始黑名单配置
 	Config *BlocklistConfig
@@ -269,89 +391,67 @@ type MistBlocklistConfig struct {
 	OnBlocked func(*mist.Context)
 }
 
-// 全局默认Mist配置
-var defaultMistConfig = MistBlocklistConfig{
-	OnBlocked: func(ctx *mist.Context) {
-		ctx.AbortWithStatus(http.StatusForbidden)
-	},
-}
-
-// MistMiddleware 创建适用于Mist框架的中间件，支持自定义封禁处理函数
-// 已废弃: 请使用 security/blocklist/middleware 包中的 New 函数
+// MistMiddleware 创建适用于Mist框架的中间件
 func (m *Manager) MistMiddleware(options ...func(*MistBlocklistConfig)) mist.Middleware {
-	// 兼容旧版，调用新的middleware实现
-	config := defaultMistConfig
-	config.Config = &m.config
+	cfg := &MistBlocklistConfig{
+		Config: &m.config,
+		OnBlocked: func(ctx *mist.Context) {
+			ctx.RespondWithJSON(http.StatusForbidden, "您的IP已被暂时封禁，请稍后再试")
+		},
+	}
 
 	// 应用自定义选项
 	for _, option := range options {
-		option(&config)
+		option(cfg)
 	}
 
-	// 使用新的实现
-	if config.OnBlocked != nil {
-		// 由于无法在函数中使用import，
-		// 这里需要手动实现中间件而不是使用middleware包
-		return func(next mist.HandleFunc) mist.HandleFunc {
-			return func(ctx *mist.Context) {
-				ip := ctx.ClientIP()
-
-				// 如果IP被封禁，中断请求
-				if m.IsBlocked(ip) {
-					// 调用封禁处理函数
-					config.OnBlocked(ctx)
-					return
-				}
-
-				// 继续处理请求
-				next(ctx)
-			}
-		}
-	}
-
-	// 默认处理
 	return func(next mist.HandleFunc) mist.HandleFunc {
 		return func(ctx *mist.Context) {
-			ip := ctx.ClientIP()
+			ip := getClientIP(ctx.Request)
 
-			// 如果IP被封禁，中断请求
+			// 检查IP是否被封禁
 			if m.IsBlocked(ip) {
-				ctx.AbortWithStatus(http.StatusForbidden)
+				cfg.OnBlocked(ctx)
 				return
 			}
 
-			// 继续处理请求
 			next(ctx)
 		}
 	}
 }
 
-// WithMistOnBlocked 设置Mist框架中IP封禁时的处理函数
+// WithMistOnBlocked 设置Mist框架的IP被封禁时的处理函数
 func WithMistOnBlocked(handler func(*mist.Context)) func(*MistBlocklistConfig) {
 	return func(c *MistBlocklistConfig) {
 		c.OnBlocked = handler
 	}
 }
 
-// getClientIP 从请求中获取客户端IP
+// getClientIP 获取客户端真实IP
 func getClientIP(r *http.Request) string {
-	// 尝试从X-Forwarded-For头获取
+	// 先尝试从X-Forwarded-For获取
 	ip := r.Header.Get("X-Forwarded-For")
 	if ip != "" {
-		return ip
+		// X-Forwarded-For可能包含多个IP，取第一个
+		ips := strings.Split(ip, ",")
+		if len(ips) > 0 && ips[0] != "" {
+			return strings.TrimSpace(ips[0])
+		}
 	}
 
-	// 尝试从X-Real-IP头获取
+	// 再尝试从X-Real-IP获取
 	ip = r.Header.Get("X-Real-IP")
 	if ip != "" {
 		return ip
 	}
 
-	// 否则使用RemoteAddr
-	return r.RemoteAddr
+	// 最后从RemoteAddr获取
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr // 如果解析失败，直接返回原始值
+	}
+	return ip
 }
-
-// 选项函数
 
 // WithMaxFailedAttempts 设置最大失败尝试次数
 func WithMaxFailedAttempts(max int) func(*BlocklistConfig) {
@@ -374,7 +474,7 @@ func WithClearInterval(interval time.Duration) func(*BlocklistConfig) {
 	}
 }
 
-// WithOnBlocked 设置封禁处理函数
+// WithOnBlocked 设置封禁时的处理函数
 func WithOnBlocked(handler func(w http.ResponseWriter, r *http.Request)) func(*BlocklistConfig) {
 	return func(c *BlocklistConfig) {
 		c.OnBlocked = handler
@@ -395,86 +495,73 @@ func WithWhitelistIPs(ips []string) func(*BlocklistConfig) {
 	}
 }
 
-// IPRangeConfig IP范围配置
-type IPRangeConfig struct {
-	// AllowedNetworks 允许的IP网段
-	AllowedNetworks []*net.IPNet
-	// DeniedNetworks 拒绝的IP网段
-	DeniedNetworks []*net.IPNet
-	// DefaultAllow 默认允许策略（如果为true，则除了明确拒绝的IP外都允许）
-	DefaultAllow bool
-	// OnDenied 拒绝访问时的处理函数
-	OnDenied func(*mist.Context)
+// WithStorage 设置存储实现
+func WithStorage(storage Storage) func(*BlocklistConfig) {
+	return func(c *BlocklistConfig) {
+		c.Storage = storage
+	}
 }
 
-// IPRangeMiddleware 基于IP范围的中间件
-func IPRangeMiddleware(config IPRangeConfig) mist.Middleware {
-	return func(next mist.HandleFunc) mist.HandleFunc {
-		return func(ctx *mist.Context) {
-			// 获取客户端IP
-			ipStr := ctx.ClientIP()
-			ip := net.ParseIP(ipStr)
-			if ip == nil {
-				// 无法解析IP，按默认策略处理
-				if !config.DefaultAllow {
-					if config.OnDenied != nil {
-						config.OnDenied(ctx)
-					} else {
-						ctx.AbortWithStatus(http.StatusForbidden)
-					}
-				} else {
-					next(ctx)
-				}
-				return
-			}
-
-			// 检查是否在拒绝列表中
-			for _, network := range config.DeniedNetworks {
-				if network.Contains(ip) {
-					if config.OnDenied != nil {
-						config.OnDenied(ctx)
-					} else {
-						ctx.AbortWithStatus(http.StatusForbidden)
-					}
-					return
-				}
-			}
-
-			// 检查是否在允许列表中
-			allowed := config.DefaultAllow
-			if len(config.AllowedNetworks) > 0 {
-				allowed = false
-				for _, network := range config.AllowedNetworks {
-					if network.Contains(ip) {
-						allowed = true
-						break
-					}
-				}
-			}
-
-			if !allowed {
-				if config.OnDenied != nil {
-					config.OnDenied(ctx)
-				} else {
-					ctx.AbortWithStatus(http.StatusForbidden)
-				}
-				return
-			}
-
-			next(ctx)
+// WithProgressiveBlocking 设置是否使用递增封禁时长
+func WithProgressiveBlocking(enable bool, factor float64, maxDuration time.Duration) func(*BlocklistConfig) {
+	return func(c *BlocklistConfig) {
+		c.UseProgressiveBlocking = enable
+		if factor > 0 {
+			c.ProgressiveBlockingFactor = factor
+		}
+		if maxDuration > 0 {
+			c.MaxBlockDuration = maxDuration
 		}
 	}
 }
 
-// ParseCIDR 解析CIDR字符串为IP网段
-func ParseCIDR(cidrs []string) ([]*net.IPNet, error) {
-	networks := make([]*net.IPNet, 0, len(cidrs))
-	for _, cidr := range cidrs {
-		_, network, err := net.ParseCIDR(cidr)
-		if err != nil {
-			return nil, err
-		}
-		networks = append(networks, network)
+// WithGeoRestriction 设置地理位置限制
+func WithGeoRestriction(geo *GeoRestriction) func(*BlocklistConfig) {
+	return func(c *BlocklistConfig) {
+		c.GeoRestriction = geo
 	}
-	return networks, nil
+}
+
+// WithAllowPrivateIPs 设置是否允许私有IP
+func WithAllowPrivateIPs(allow bool) func(*BlocklistConfig) {
+	return func(c *BlocklistConfig) {
+		c.AllowPrivateIPs = allow
+	}
+}
+
+// isPrivateIP 检查IP是否为私有地址
+func isPrivateIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+
+	// 检查IPv4私有地址范围
+	if ip4 := ip.To4(); ip4 != nil {
+		// 10.0.0.0/8
+		if ip4[0] == 10 {
+			return true
+		}
+		// 172.16.0.0/12
+		if ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31 {
+			return true
+		}
+		// 192.168.0.0/16
+		if ip4[0] == 192 && ip4[1] == 168 {
+			return true
+		}
+		// 127.0.0.0/8
+		if ip4[0] == 127 {
+			return true
+		}
+	} else {
+		// IPv6 localhost
+		if ip.Equal(net.ParseIP("::1")) {
+			return true
+		}
+		// IPv6 unique local address (fc00::/7)
+		return len(ip) == 16 && (ip[0] == 0xfc || ip[0] == 0xfd)
+	}
+
+	return false
 }

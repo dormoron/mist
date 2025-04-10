@@ -1,6 +1,8 @@
 package headers
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"strconv"
 	"strings"
@@ -45,6 +47,18 @@ type Config struct {
 	CrossOriginOpenerPolicy string
 	// CrossOriginResourcePolicy 跨源资源策略
 	CrossOriginResourcePolicy string
+	// DocumentPolicy 文档策略
+	DocumentPolicy string
+	// ReportTo 违规报告配置
+	ReportTo string
+	// ReportURI CSP违规报告URI
+	ReportURI string
+	// EnableNonce 是否启用CSP nonce
+	EnableNonce bool
+	// EnableUpgradeInsecureRequests 是否启用升级不安全请求
+	EnableUpgradeInsecureRequests bool
+	// CSPReporting 是否启用CSP报告模式
+	CSPReporting bool
 }
 
 // DefaultConfig 返回默认的安全头部配置
@@ -53,19 +67,25 @@ func DefaultConfig() Config {
 	secConfig := security.GetSecurityConfig()
 
 	config := Config{
-		XSSProtection:             secConfig.Headers.EnableXSSProtection,
-		ContentTypeNoSniff:        secConfig.Headers.EnableContentTypeNosniff,
-		XFrameOptions:             secConfig.Headers.XFrameOptionsValue,
-		HSTS:                      secConfig.Headers.EnableHSTS,
-		HSTSMaxAge:                int(secConfig.Headers.HSTSMaxAge.Seconds()),
-		HSTSIncludeSubdomains:     secConfig.Headers.HSTSIncludeSubdomains,
-		HSTSPreload:               secConfig.Headers.HSTSPreload,
-		ContentSecurityPolicy:     secConfig.Headers.ContentSecurityPolicy,
-		ReferrerPolicy:            "strict-origin-when-cross-origin",
-		XContentTypeOptions:       "nosniff",
-		CrossOriginEmbedderPolicy: "require-corp",
-		CrossOriginOpenerPolicy:   "same-origin",
-		CrossOriginResourcePolicy: "same-origin",
+		XSSProtection:                 secConfig.Headers.EnableXSSProtection,
+		ContentTypeNoSniff:            secConfig.Headers.EnableContentTypeNosniff,
+		XFrameOptions:                 secConfig.Headers.XFrameOptionsValue,
+		HSTS:                          secConfig.Headers.EnableHSTS,
+		HSTSMaxAge:                    int(secConfig.Headers.HSTSMaxAge.Seconds()),
+		HSTSIncludeSubdomains:         secConfig.Headers.HSTSIncludeSubdomains,
+		HSTSPreload:                   secConfig.Headers.HSTSPreload,
+		ContentSecurityPolicy:         secConfig.Headers.ContentSecurityPolicy,
+		ReferrerPolicy:                "strict-origin-when-cross-origin",
+		XContentTypeOptions:           "nosniff",
+		CrossOriginEmbedderPolicy:     "require-corp",
+		CrossOriginOpenerPolicy:       "same-origin",
+		CrossOriginResourcePolicy:     "same-origin",
+		DocumentPolicy:                "",
+		ReportTo:                      "",
+		ReportURI:                     "/api/security/report",
+		EnableNonce:                   true,
+		EnableUpgradeInsecureRequests: true,
+		CSPReporting:                  false,
 	}
 
 	return config
@@ -81,6 +101,13 @@ func New(options ...func(*Config)) mist.Middleware {
 
 	return func(next mist.HandleFunc) mist.HandleFunc {
 		return func(ctx *mist.Context) {
+			// 如果启用nonce，生成一个nonce值
+			var nonce string
+			if config.EnableNonce {
+				nonce = generateNonce()
+				ctx.Set("csp_nonce", nonce)
+			}
+
 			// X-XSS-Protection
 			if config.XSSProtection {
 				ctx.Header("X-XSS-Protection", "1; mode=block")
@@ -110,7 +137,35 @@ func New(options ...func(*Config)) mist.Middleware {
 
 			// Content-Security-Policy
 			if config.ContentSecurityPolicy != "" {
-				ctx.Header("Content-Security-Policy", config.ContentSecurityPolicy)
+				cspValue := config.ContentSecurityPolicy
+
+				// 如果启用nonce，添加到CSP中的script-src和style-src
+				if config.EnableNonce && nonce != "" {
+					cspValue = addNonceToCSP(cspValue, nonce)
+				}
+
+				// 如果启用升级不安全请求
+				if config.EnableUpgradeInsecureRequests && !strings.Contains(cspValue, "upgrade-insecure-requests") {
+					if !strings.HasSuffix(cspValue, "; ") && cspValue != "" {
+						cspValue += "; "
+					}
+					cspValue += "upgrade-insecure-requests"
+				}
+
+				// 如果启用报告
+				if config.CSPReporting && config.ReportURI != "" {
+					if !strings.HasSuffix(cspValue, "; ") && cspValue != "" {
+						cspValue += "; "
+					}
+					cspValue += "report-uri " + config.ReportURI
+				}
+
+				ctx.Header("Content-Security-Policy", cspValue)
+
+				// 如果启用报告模式，同时设置报告模式头
+				if config.CSPReporting {
+					ctx.Header("Content-Security-Policy-Report-Only", cspValue)
+				}
 			}
 
 			// Referrer-Policy
@@ -123,11 +178,24 @@ func New(options ...func(*Config)) mist.Middleware {
 				ctx.Header("Permissions-Policy", config.PermissionsPolicy)
 			}
 
+			// Document-Policy
+			if config.DocumentPolicy != "" {
+				ctx.Header("Document-Policy", config.DocumentPolicy)
+			}
+
+			// Report-To
+			if config.ReportTo != "" {
+				ctx.Header("Report-To", config.ReportTo)
+			}
+
 			// Expect-CT
 			if config.ExpectCT {
 				value := fmt.Sprintf("max-age=%d", config.ExpectCTMaxAge)
 				if config.ExpectCTEnforce {
 					value += ", enforce"
+				}
+				if config.ReportURI != "" {
+					value += fmt.Sprintf(`, report-uri="%s"`, config.ReportURI)
 				}
 				ctx.Header("Expect-CT", value)
 			}
@@ -150,6 +218,62 @@ func New(options ...func(*Config)) mist.Middleware {
 			next(ctx)
 		}
 	}
+}
+
+// 生成随机nonce值
+func generateNonce() string {
+	b := make([]byte, 16)
+	_, err := rand.Read(b)
+	if err != nil {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+// 添加nonce到CSP
+func addNonceToCSP(csp, nonce string) string {
+	if csp == "" {
+		return fmt.Sprintf("script-src 'self' 'nonce-%s'; style-src 'self' 'nonce-%s'", nonce, nonce)
+	}
+
+	directives := strings.Split(csp, ";")
+	var result []string
+	scriptSrcFound := false
+	styleSrcFound := false
+
+	for _, directive := range directives {
+		directive = strings.TrimSpace(directive)
+		if directive == "" {
+			continue
+		}
+
+		if strings.HasPrefix(directive, "script-src") {
+			scriptSrcFound = true
+			// 如果不包含nonce，添加它
+			if !strings.Contains(directive, "'nonce-") {
+				directive += fmt.Sprintf(" 'nonce-%s'", nonce)
+			}
+		} else if strings.HasPrefix(directive, "style-src") {
+			styleSrcFound = true
+			// 如果不包含nonce，添加它
+			if !strings.Contains(directive, "'nonce-") {
+				directive += fmt.Sprintf(" 'nonce-%s'", nonce)
+			}
+		}
+		result = append(result, directive)
+	}
+
+	// 如果没有找到script-src，添加它
+	if !scriptSrcFound {
+		result = append(result, fmt.Sprintf("script-src 'self' 'nonce-%s'", nonce))
+	}
+
+	// 如果没有找到style-src，添加它
+	if !styleSrcFound {
+		result = append(result, fmt.Sprintf("style-src 'self' 'nonce-%s'", nonce))
+	}
+
+	return strings.Join(result, "; ")
 }
 
 // 选项函数
@@ -206,6 +330,48 @@ func WithPermissionsPolicy(policy string) func(*Config) {
 	}
 }
 
+// WithDocumentPolicy 设置文档策略
+func WithDocumentPolicy(policy string) func(*Config) {
+	return func(c *Config) {
+		c.DocumentPolicy = policy
+	}
+}
+
+// WithReportingEndpoints 设置报告终端
+func WithReportingEndpoints(endpoints string) func(*Config) {
+	return func(c *Config) {
+		c.ReportTo = endpoints
+	}
+}
+
+// WithReportURI 设置报告URI
+func WithReportURI(uri string) func(*Config) {
+	return func(c *Config) {
+		c.ReportURI = uri
+	}
+}
+
+// WithCSPReporting 设置CSP报告模式
+func WithCSPReporting(enabled bool) func(*Config) {
+	return func(c *Config) {
+		c.CSPReporting = enabled
+	}
+}
+
+// WithNonce 设置是否启用Nonce
+func WithNonce(enabled bool) func(*Config) {
+	return func(c *Config) {
+		c.EnableNonce = enabled
+	}
+}
+
+// WithUpgradeInsecureRequests 设置是否启用升级不安全请求
+func WithUpgradeInsecureRequests(enabled bool) func(*Config) {
+	return func(c *Config) {
+		c.EnableUpgradeInsecureRequests = enabled
+	}
+}
+
 // WithExpectCT 设置Expect-CT
 func WithExpectCT(enabled bool, maxAge int, enforce bool) func(*Config) {
 	return func(c *Config) {
@@ -229,12 +395,14 @@ func WithCrossOriginPolicies(embedder, opener, resource string) func(*Config) {
 // CSPBuilder 用于构建内容安全策略的生成器
 type CSPBuilder struct {
 	directives map[string][]string
+	requireSRI map[string]bool
 }
 
 // NewCSPBuilder 创建新的CSP生成器
 func NewCSPBuilder() *CSPBuilder {
 	return &CSPBuilder{
 		directives: make(map[string][]string),
+		requireSRI: make(map[string]bool),
 	}
 }
 
@@ -244,13 +412,24 @@ func (b *CSPBuilder) Add(directive string, values ...string) *CSPBuilder {
 	return b
 }
 
+// RequireSRI 为特定指令要求使用SRI
+func (b *CSPBuilder) RequireSRI(directive string, require bool) *CSPBuilder {
+	b.requireSRI[directive] = require
+	return b
+}
+
 // String 生成内容安全策略字符串
 func (b *CSPBuilder) String() string {
 	var policies []string
 
 	for directive, values := range b.directives {
 		if len(values) > 0 {
-			policy := directive + " " + strings.Join(values, " ")
+			policy := directive
+			// 检查是否需要为此指令添加SRI要求
+			if require, ok := b.requireSRI[directive]; ok && require {
+				policy += " 'require-sri-for'"
+			}
+			policy += " " + strings.Join(values, " ")
 			policies = append(policies, policy)
 		} else {
 			policies = append(policies, directive)
@@ -278,6 +457,35 @@ func CSPStrict() string {
 		Add("form-action", "'self'").
 		Add("frame-ancestors", "'none'").
 		Add("upgrade-insecure-requests").
+		RequireSRI("script-src", true).
+		RequireSRI("style-src", true).
+		String()
+}
+
+// CSPModern 返回适合现代Web应用的CSP策略
+func CSPModern() string {
+	return NewCSPBuilder().
+		Add("default-src", "'self'").
+		Add("script-src", "'self'").
+		Add("script-src-elem", "'self'").
+		Add("script-src-attr", "'none'").
+		Add("style-src", "'self'").
+		Add("style-src-elem", "'self'").
+		Add("style-src-attr", "'none'").
+		Add("img-src", "'self' data:").
+		Add("font-src", "'self'").
+		Add("connect-src", "'self'").
+		Add("media-src", "'self'").
+		Add("object-src", "'none'").
+		Add("child-src", "'none'").
+		Add("frame-ancestors", "'none'").
+		Add("form-action", "'self'").
+		Add("base-uri", "'self'").
+		Add("manifest-src", "'self'").
+		Add("worker-src", "'self'").
+		Add("upgrade-insecure-requests").
+		RequireSRI("script-src", true).
+		RequireSRI("style-src", true).
 		String()
 }
 
@@ -290,6 +498,60 @@ func CSPBasic() string {
 		Add("style-src", "'self' 'unsafe-inline'").
 		Add("font-src", "'self'").
 		String()
+}
+
+// DefaultPermissionsPolicy 返回默认的权限策略
+func DefaultPermissionsPolicy() string {
+	permissions := []string{
+		"accelerometer=()",
+		"ambient-light-sensor=()",
+		"autoplay=(self)",
+		"battery=(self)",
+		"camera=(self)",
+		"display-capture=(self)",
+		"document-domain=(self)",
+		"encrypted-media=(self)",
+		"execution-while-not-rendered=(self)",
+		"execution-while-out-of-viewport=(self)",
+		"fullscreen=(self)",
+		"geolocation=(self)",
+		"gyroscope=()",
+		"magnetometer=()",
+		"microphone=(self)",
+		"midi=(self)",
+		"navigation-override=(self)",
+		"payment=(self)",
+		"picture-in-picture=(self)",
+		"publickey-credentials-get=(self)",
+		"screen-wake-lock=(self)",
+		"sync-xhr=(self)",
+		"usb=(self)",
+		"web-share=(self)",
+		"xr-spatial-tracking=()",
+	}
+	return strings.Join(permissions, ", ")
+}
+
+// DefaultDocumentPolicy 返回默认的文档策略
+func DefaultDocumentPolicy() string {
+	policies := []string{
+		"document-write=?0",
+		"force-load-at-top=?0",
+		"js-profiling=?0",
+		"legacy-image-formats=?0",
+		"sync-script=?0",
+		"sync-xhr=?0",
+		"unsized-media=?0",
+	}
+	return strings.Join(policies, ", ")
+}
+
+// DefaultReportingEndpoints 返回默认的报告终端配置
+func DefaultReportingEndpoints(endpoint string) string {
+	if endpoint == "" {
+		endpoint = "/api/security/report"
+	}
+	return fmt.Sprintf(`{"endpoints":[{"url":"%s"}],"group":"default","max_age":10886400}`, endpoint)
 }
 
 // 预设X-Frame-Options
