@@ -1,6 +1,8 @@
 package mist
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -82,59 +84,223 @@ type Context struct {
 	// Aborted is a flag indicating whether the request handling should be stopped.
 	// If true, handlers should terminate further processing immediately.
 	Aborted bool
+
+	// 用于超时控制和取消的上下文
+	ctx        context.Context
+	cancelFunc context.CancelFunc
 }
 
-// Deadline returns the time when the context will be canceled, if any.
-// It delegates the call to the underlying standard context associated with the request.
-//
-// Returns:
-//
-//	deadline (time.Time): The time when work done on behalf of this context should be canceled.
-//	ok (bool): True if a deadline is set, false if no deadline is set.
-func (c *Context) Deadline() (deadline time.Time, ok bool) {
-	return c.Request.Context().Deadline()
+// 全局Context对象池，用于减少GC压力
+var contextPool = sync.Pool{
+	New: func() interface{} {
+		return &Context{
+			PathParams: make(map[string]string),
+			Keys:       make(map[string]any),
+		}
+	},
 }
 
-// Done returns a channel that is closed when the context is canceled or times out.
-// It delegates the call to the underlying standard context associated with the request.
-//
-// Returns:
-//
-//	(<-chan struct{}): A channel that is closed when the context is canceled or times out.
+// 全局缓冲区池，用于存储响应数据
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 0, 4096) // 默认4KB缓冲区
+	},
+}
+
+// GetContext 从对象池获取一个Context
+// 注意：使用后必须调用ReleaseContext归还
+func GetContext(w http.ResponseWriter, r *http.Request, timeout time.Duration) *Context {
+	ctx, ok := contextPool.Get().(*Context)
+	if !ok || ctx == nil {
+		// 如果获取失败，创建新对象
+		ctx = &Context{
+			PathParams: make(map[string]string),
+			Keys:       make(map[string]any),
+		}
+	}
+
+	// 重置Context状态
+	ctx.Request = r
+	ctx.ResponseWriter = w
+	ctx.PathParams = make(map[string]string)
+	ctx.Keys = make(map[string]any)
+	ctx.RespData = nil
+	ctx.RespStatusCode = http.StatusOK
+	ctx.headerWritten = false
+	ctx.Aborted = false
+
+	// 设置超时上下文
+	if timeout > 0 {
+		ctx.ctx, ctx.cancelFunc = context.WithTimeout(r.Context(), timeout)
+	} else {
+		ctx.ctx, ctx.cancelFunc = context.WithCancel(r.Context())
+	}
+
+	return ctx
+}
+
+// ReleaseContext 将Context归还到对象池
+func ReleaseContext(ctx *Context) {
+	if ctx == nil {
+		return
+	}
+
+	// 取消上下文以防止内存泄漏
+	if ctx.cancelFunc != nil {
+		ctx.cancelFunc()
+		ctx.cancelFunc = nil
+	}
+
+	// 清空可能占用大量内存的字段
+	ctx.Request = nil
+	ctx.ResponseWriter = nil
+	ctx.RespData = nil
+
+	// 重置小型字段
+	ctx.RespStatusCode = 0
+	ctx.headerWritten = false
+	ctx.Aborted = false
+
+	// 清空但不销毁map，避免重新分配
+	for k := range ctx.PathParams {
+		delete(ctx.PathParams, k)
+	}
+	for k := range ctx.Keys {
+		delete(ctx.Keys, k)
+	}
+
+	// 归还到对象池
+	contextPool.Put(ctx)
+}
+
+// GetBuffer 从缓冲区池获取一个字节切片
+func GetBuffer() []byte {
+	return bufferPool.Get().([]byte)[:0]
+}
+
+// ReleaseBuffer 将缓冲区归还到对象池
+func ReleaseBuffer(buf []byte) {
+	if buf != nil {
+		bufferPool.Put(buf)
+	}
+}
+
+// RespondWithJSONBuffer 使用缓冲区池来优化JSON响应
+func (c *Context) RespondWithJSONBuffer(status int, val any) error {
+	// 获取缓冲区
+	buf := GetBuffer()
+	defer ReleaseBuffer(buf)
+
+	// 使用缓冲区进行JSON编码
+	enc := json.NewEncoder(bytes.NewBuffer(buf))
+	if err := enc.Encode(val); err != nil {
+		return err
+	}
+
+	// 设置Content-Type
+	c.Header("Content-Type", "application/json")
+
+	// 设置状态码
+	c.RespStatusCode = status
+
+	// 复制缓冲区内容到响应数据
+	c.RespData = make([]byte, len(buf))
+	copy(c.RespData, buf)
+
+	return nil
+}
+
+// InitContext初始化一个新的Context实例
+func InitContext(w http.ResponseWriter, r *http.Request, timeout time.Duration) *Context {
+	var ctx context.Context
+	var cancel context.CancelFunc
+
+	// 设置默认超时，如果timeout为0则不设置超时
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(r.Context(), timeout)
+	} else {
+		ctx, cancel = context.WithCancel(r.Context())
+	}
+
+	return &Context{
+		Request:        r,
+		ResponseWriter: w,
+		ctx:            ctx,
+		cancelFunc:     cancel,
+		PathParams:     make(map[string]string),
+		Keys:           make(map[string]any),
+		RespStatusCode: http.StatusOK,
+	}
+}
+
+// Cancel 取消当前请求的处理
+func (c *Context) Cancel() {
+	if c.cancelFunc != nil {
+		c.cancelFunc()
+	}
+}
+
+// WithTimeout 为当前上下文设置新的超时时间
+func (c *Context) WithTimeout(timeout time.Duration) {
+	// 先取消旧的上下文
+	if c.cancelFunc != nil {
+		c.cancelFunc()
+	}
+
+	// 创建新的上下文
+	c.ctx, c.cancelFunc = context.WithTimeout(c.Request.Context(), timeout)
+}
+
+// Context 返回内部上下文，用于传递给需要context.Context的函数
+func (c *Context) Context() context.Context {
+	if c.ctx == nil {
+		return c.Request.Context()
+	}
+	return c.ctx
+}
+
+// Done 返回一个通道，当上下文取消或超时时关闭
 func (c *Context) Done() <-chan struct{} {
-	return c.Request.Context().Done()
+	if c.ctx == nil {
+		return c.Request.Context().Done()
+	}
+	return c.ctx.Done()
 }
 
-// Err returns an error indicating why the context was canceled, if applicable.
-// It delegates the call to the underlying standard context associated with the request.
-//
-// Returns:
-//
-//	(error): A non-nil error value after the Done channel is closed.
-//	         If the Done channel is not yet closed, returns nil.
+// Deadline 返回上下文的截止时间
+func (c *Context) Deadline() (time.Time, bool) {
+	if c.ctx == nil {
+		return c.Request.Context().Deadline()
+	}
+	return c.ctx.Deadline()
+}
+
+// Err 返回上下文取消的原因
 func (c *Context) Err() error {
-	return c.Request.Context().Err()
+	if c.ctx == nil {
+		return c.Request.Context().Err()
+	}
+	return c.ctx.Err()
 }
 
-// Value retrieves the value associated with the provided key.
-// If the key is a string, it first attempts to fetch the value from the custom
-// context-specific storage. If the key is not found or is not a string,
-// it falls back to the standard context's Value method.
-//
-// Parameters:
-//
-//	key (any): The key to look up in the context. If this is a string,
-//	           it attempts to fetch the value from the custom context-specific storage.
-//
-// Returns:
-//
-//	(any): The value associated with the key, if found; otherwise nil.
+// Value 获取上下文中的值
 func (c *Context) Value(key any) any {
+	// 检查是否为字符串键，尝试从自定义键值存储获取
 	if keyAsString, ok := key.(string); ok {
 		if val, exists := c.Get(keyAsString); exists {
 			return val
 		}
 	}
+
+	// 检查自定义上下文
+	if c.ctx != nil {
+		val := c.ctx.Value(key)
+		if val != nil {
+			return val
+		}
+	}
+
+	// 回退到原始请求上下文
 	return c.Request.Context().Value(key)
 }
 

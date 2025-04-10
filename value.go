@@ -3,9 +3,10 @@ package mist
 import (
 	"encoding/json"
 	"errors"
-	"github.com/dormoron/mist/internal/errs"
 	"reflect"
 	"strconv"
+
+	"github.com/dormoron/mist/internal/errs"
 )
 
 // AnyValue provides a structure to store any value along with an optional error

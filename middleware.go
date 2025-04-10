@@ -1,39 +1,31 @@
 package mist
 
-// Middleware represents a function type in Go that defines the structure of a middleware function.
-// In the context of web servers or other request-handling applications, middleware is used to process
-// requests before reaching the final request handler, allowing for pre-processing like auth,
-// logging, or any other operation that should be performed before or after the main processing of a request.
+// Middleware 表示Go中的一个函数类型，定义了中间件函数的结构。
+// 在Web服务器或其他请求处理应用程序的上下文中，中间件用于在请求到达最终请求处理程序之前处理请求，
+// 允许进行预处理，如认证、日志记录或在请求的主要处理之前或之后应执行的任何其他操作。
 //
-// The type is defined as a function that takes one HandleFunc as its parameter (often referred to as 'next')
-// and returns another HandleFunc. The HandleFunc inside the parentheses is the next function in the chain
-// that the middleware will call, while the HandleFunc being returned is the modified or "wrapped" version of that function.
+// 该类型被定义为一个函数，它接受一个HandleFunc作为参数（通常称为'next'）并返回另一个HandleFunc。
+// 括号内的HandleFunc是链中中间件将调用的下一个函数，而返回的HandleFunc是该函数的修改或"包装"版本。
 //
-// A typical middleware will perform some actions, then call 'next' to pass control to the subsequent middleware or the final
-// handler, potentially perform some actions after 'next' has returned, and finally return the result of 'next'. By doing so,
-// it forms a chain of middleware functions through which the request flows.
+// 典型的中间件将执行一些操作，然后调用'next'将控制权传递给后续的中间件或最终处理程序，
+// 可能在'next'返回后执行一些操作，最后返回'next'的结果。通过这样做，它形成了一个请求流经的中间件函数链。
 //
-// The Middleware type is designed to be flexible and composable, making the construction of an ordered sequence
-// of middleware functions straightforward and modular.
+// Middleware类型设计得灵活且可组合，使得有序的中间件函数序列的构建变得简单和模块化。
 //
-// Parameters:
-//   - 'next': The HandleFunc to wrap with additional behavior. This is the function that would normally handle
-//     the request or be the next middleware in line.
+// 参数:
+//   - 'next': 要用额外行为包装的HandleFunc。这是通常会处理请求的函数或者是链中的下一个中间件。
 //
-// Return Value:
-// - A HandleFunc that represents the result of adding the middleware's behavior to the 'next' function.
+// 返回值:
+// - 一个HandleFunc，表示将中间件的行为添加到'next'函数后的结果。
 //
-// Usage:
-//   - Middleware functions are typically used with a router or a server to handle HTTP requests.
-//   - They are chained together so that a request goes through a series of middleware before finally being
-//     handled by the main processing function.
+// 用法:
+//   - 中间件函数通常与路由器或服务器一起使用，以处理HTTP请求。
+//   - 它们被链接在一起，使得请求在最终被主处理函数处理之前通过一系列中间件。
 //
-// Considerations:
-//   - When designing middleware, one should ensure that no necessary 'next' handlers are skipped inadvertently.
-//     Unless it's intentional (e.g., an authorization middleware stopping unauthorized requests), a middleware
-//     should usually call 'next'.
-//   - Be careful with error handling in middleware. Decide whether to handle and log errors within the middleware
-//     itself or pass them along to be handled by other mechanism.
-//   - Middleware functions should avoid altering the request unless it is part of its clear responsibility,
-//     such as setting context values or modifying headers that pertain to middleware-specific functionality.
+// 注意事项:
+//   - 在设计中间件时，应确保不会无意中跳过必要的'next'处理程序。
+//     除非是有意的（例如，阻止未授权请求的授权中间件），中间件通常应该调用'next'。
+//   - 小心处理中间件中的错误。决定是在中间件本身内处理和记录错误，还是将它们传递给其他机制处理。
+//   - 中间件函数应避免更改请求，除非这是其明确职责的一部分，
+//     例如设置上下文值或修改与中间件特定功能相关的头部。
 type Middleware func(next HandleFunc) HandleFunc

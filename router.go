@@ -3,6 +3,7 @@ package mist
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dormoron/mist/internal/errs"
@@ -77,12 +78,11 @@ type router struct {
 	trees map[string]*node
 
 	// 路由缓存相关字段
-	routeCache    map[routeKey]*matchInfo
-	routeCacheMux sync.RWMutex
-	maxCacheSize  int
-	cacheHits     uint64
-	cacheMisses   uint64
-	cacheEnabled  bool
+	routeCache   sync.Map // 使用sync.Map替代map+互斥锁
+	maxCacheSize int
+	cacheHits    uint64
+	cacheMisses  uint64
+	cacheEnabled bool
 
 	// routeStatsMu protects concurrent access to routeStats
 	routeStatsMu sync.RWMutex
@@ -134,7 +134,7 @@ type router struct {
 func initRouter() router {
 	return router{
 		trees:        map[string]*node{},
-		routeCache:   make(map[routeKey]*matchInfo, 1024),
+		routeCache:   sync.Map{},
 		maxCacheSize: 10000, // 默认缓存大小
 		cacheEnabled: true,  // 默认启用缓存
 		routeStats:   make(map[string]*routeStats),
@@ -144,9 +144,6 @@ func initRouter() router {
 
 // EnableCache 启用路由缓存
 func (r *router) EnableCache(maxSize int) {
-	r.routeCacheMux.Lock()
-	defer r.routeCacheMux.Unlock()
-
 	r.cacheEnabled = true
 	if maxSize > 0 {
 		r.maxCacheSize = maxSize
@@ -155,26 +152,23 @@ func (r *router) EnableCache(maxSize int) {
 
 // DisableCache 禁用路由缓存
 func (r *router) DisableCache() {
-	r.routeCacheMux.Lock()
-	defer r.routeCacheMux.Unlock()
-
 	r.cacheEnabled = false
 	r.clearCache()
 }
 
-// ClearCache 清空路由缓存
-func (r *router) clearCache() {
-	r.routeCache = make(map[routeKey]*matchInfo, 1024)
-	r.cacheHits = 0
-	r.cacheMisses = 0
-}
-
 // CacheStats 返回缓存统计信息
 func (r *router) CacheStats() (hits, misses uint64, size int) {
-	r.routeCacheMux.RLock()
-	defer r.routeCacheMux.RUnlock()
+	hits = atomic.LoadUint64(&r.cacheHits)
+	misses = atomic.LoadUint64(&r.cacheMisses)
 
-	return r.cacheHits, r.cacheMisses, len(r.routeCache)
+	// 计算当前缓存大小
+	size = 0
+	r.routeCache.Range(func(_, _ interface{}) bool {
+		size++
+		return true
+	})
+
+	return
 }
 
 // Group creates and returns a new routerGroup attached to the router it is called on.
@@ -343,15 +337,9 @@ func appendCollectMiddlewares(n *node, ms []Middleware) []Middleware {
 func (r *router) findRoute(method string, path string) (*matchInfo, bool) {
 	// 检查路由缓存
 	if r.cacheEnabled {
-		r.routeCacheMux.RLock()
-		key := routeKey{method: method, path: path}
-		if mi, ok := r.routeCache[key]; ok {
-			r.cacheHits++
-			r.routeCacheMux.RUnlock()
+		if mi, ok := r.findRouteFromCache(method, path); ok {
 			return mi, true
 		}
-		r.cacheMisses++
-		r.routeCacheMux.RUnlock()
 	}
 
 	// Attempt to retrieve the root node for the HTTP method from the router's trees.
@@ -511,23 +499,62 @@ func (r *router) tryFastMatch(root *node, path string) (*node, bool) {
 	return cur, cur.handler != nil
 }
 
-// addToCache 将路由匹配结果添加到缓存
+// addToCache adds a route match result to the cache
 func (r *router) addToCache(method, path string, mi *matchInfo) {
 	if !r.cacheEnabled {
 		return
 	}
 
-	r.routeCacheMux.Lock()
-	defer r.routeCacheMux.Unlock()
+	key := routeKey{method, path}
 
-	// 检查缓存大小
-	if len(r.routeCache) >= r.maxCacheSize {
-		// 简单的缓存淘汰策略：当达到最大缓存大小时清空缓存
-		r.clearCache()
+	// 使用sync.Map的Store方法，无需加锁
+	r.routeCache.Store(key, mi)
+
+	// 定期清理缓存大小控制
+	go r.checkCacheSize()
+}
+
+// findRouteFromCache tries to find a route in the cache
+func (r *router) findRouteFromCache(method, path string) (*matchInfo, bool) {
+	if !r.cacheEnabled {
+		return nil, false
 	}
 
-	key := routeKey{method: method, path: path}
-	r.routeCache[key] = mi
+	key := routeKey{method, path}
+
+	// 使用sync.Map的Load方法，无需加锁
+	value, ok := r.routeCache.Load(key)
+	if !ok {
+		atomic.AddUint64(&r.cacheMisses, 1)
+		return nil, false
+	}
+
+	atomic.AddUint64(&r.cacheHits, 1)
+	return value.(*matchInfo), true
+}
+
+// checkCacheSize checks if the cache has grown too large and prunes it if necessary
+func (r *router) checkCacheSize() {
+	var count int
+
+	// 计算当前缓存大小
+	r.routeCache.Range(func(_, _ interface{}) bool {
+		count++
+		return true
+	})
+
+	// 如果超出最大尺寸，清空缓存
+	if count > r.maxCacheSize {
+		r.clearCache()
+	}
+}
+
+// clearCache clears the route cache
+func (r *router) clearCache() {
+	// 创建新的sync.Map替代清空操作
+	r.routeCache = sync.Map{}
+	atomic.StoreUint64(&r.cacheHits, 0)
+	atomic.StoreUint64(&r.cacheMisses, 0)
 }
 
 // findMils 在路由树中查找与路径段关联的所有中间件

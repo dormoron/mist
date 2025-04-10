@@ -1,74 +1,58 @@
 package mist
 
-// matchInfo holds the necessary information for a matched route. It encapsulates the node that has been matched,
-// any path parameters extracted from the URL, and a list of middleware that should be applied for the route.
-// This struct is typically used in the context of a routing system, where it is responsible for carrying the
-// cumulative data required to handle an HTTP request after a route has been successfully matched.
+// matchInfo 保存匹配路由所需的必要信息。它封装了匹配的节点、从URL提取的路径参数以及应该应用于该路由的中间件列表。
+// 这个结构体通常在路由系统中使用，负责在成功匹配路由后承载处理HTTP请求所需的累积数据。
 //
-// Fields:
-//   - n (*node): A pointer to the matched 'node' which represents the endpoint in the routing tree that has been
-//     matched against the incoming request path. This 'node' contains the necessary information to process
-//     the request further, such as associated handlers or additional routing information.
-//   - pathParams (map[string]string): A map that stores the path parameters as key-value pairs, where the key is
-//     the name of the parameter (as defined in the path) and the value is the actual
-//     string that has been matched from the request URL. For example, for a route
-//     pattern "/users/:userID/posts/:postID", this map would contain entries for
-//     "userID" and "postID" if the incoming request path matched that pattern.
-//   - mils ([]Middleware): A slice of 'Middleware' functions that are meant to be executed for the matched route
-//     in the order they are included in the slice. Middleware functions are used to perform
-//     operations such as request logging, auth, and input validation before the
-//     request reaches the final handler function.
+// 字段:
+//   - n (*node): 指向匹配的'node'的指针，该节点表示在路由树中已经与传入请求路径匹配的端点。
+//     这个'node'包含处理请求所需的必要信息，如关联的处理程序或其他路由信息。
+//   - pathParams (map[string]string): 一个存储路径参数的键值对映射，其中键是参数的名称（在路径中定义），
+//     值是从请求URL匹配的实际字符串。例如，对于路由模式"/users/:userID/posts/:postID"，
+//     如果传入的请求路径匹配该模式，则此映射将包含"userID"和"postID"的条目。
+//   - mils ([]Middleware): 一个'Middleware'函数的切片，按照切片中包含的顺序为匹配的路由执行。
+//     中间件函数用于在请求到达最终处理函数之前执行操作，如请求日志记录、认证和输入验证等。
 //
-// Usage:
-// The 'matchInfo' struct is populated during the route-matching process. Once a request path is matched against
-// the routing tree, a 'matchInfo' instance is created and filled with the corresponding node, extracted path
-// parameters, and any middleware associated with the matched route. This instance is then passed along to the
-// request handling logic, where it guides the processing of the request through various middleware layers and
-// eventually to the appropriate handler that will generate the response.
+// 用法:
+// 'matchInfo'结构体在路由匹配过程中被填充。一旦请求路径与路由树匹配，就创建一个'matchInfo'实例，
+// 并填充相应的节点、提取的路径参数以及与匹配路由相关的任何中间件。然后将此实例传递给请求处理逻辑，
+// 引导请求通过各种中间件层的处理，最终到达将生成响应的适当处理程序。
 type matchInfo struct {
-	// n is the node corresponding to the matched route in the routing tree. It provides access to any additional
-	// route-specific information required to handle the request.
+	// n 是路由树中与匹配路由对应的节点。它提供了访问处理请求所需的任何其他特定于路由的信息。
 	n *node
 
-	// pathParams stores the parameters identified in the URL path, such as "id" in "/users/:id", mapped to their
-	// actual values as resolved from the incoming request.
+	// pathParams 存储在URL路径中标识的参数，如"/users/:id"中的"id"，映射到从传入请求解析的实际值。
 	pathParams map[string]string
 
-	// mils is a collection of middleware functions to be executed sequentially for the matched route. These functions
-	// can modify the request context, perform checks, or carry out other pre-processing tasks.
+	// mils 是要为匹配的路由按顺序执行的中间件函数集合。这些函数可以修改请求上下文、执行检查或进行其他预处理任务。
 	mils []Middleware
 }
 
-// addValue is a method that adds a key-value pair to the pathParams map of the matchInfo struct. This method
-// serves to accumulate the parameters extracted from a matched URL path and store them for later use during
-// the request-handling process.
+// addValue 是一个方法，用于向matchInfo结构体的pathParams映射中添加键值对。
+// 这个方法用于累积从匹配的URL路径中提取的参数，并将它们存储起来，以便在请求处理过程中后续使用。
 //
-// Parameters:
-//   - key: A string representing the name of the URL parameter (e.g., "userID").
-//   - value: A string representing the value of the URL parameter that has been extracted from the request
-//     URL (e.g., "42" for a userID).
+// 参数:
+//   - key: 一个字符串，表示URL参数的名称（例如，"userID"）。
+//   - value: 一个字符串，表示从请求URL中提取的URL参数的值（例如，对于userID，值可能是"42"）。
 //
-// The addValue function performs these steps:
+// addValue函数执行以下步骤:
 //
-//  1. Checks if the pathParams map inside the matchInfo struct is nil, which would indicate that no parameters
-//     have been added yet. If it is nil, it initializes the pathParams map and instantly adds the key-value
-//     pair to it. This is necessary because you cannot add keys to a nil map; it must be initialized first.
-//  2. If the pathParams map is already initialized, it adds or overwrites the entry for the key with the new value.
-//     This ensures that the most recently processed value for a given key is stored in the map.
+//  1. 检查matchInfo结构体内的pathParams映射是否为nil，这表示尚未添加任何参数。
+//     如果是nil，则初始化pathParams映射并立即向其中添加键值对。这是必要的，因为不能向nil映射添加键；必须先初始化它。
+//  2. 如果pathParams映射已经初始化，则添加或覆盖键的条目，赋予新值。
+//     这确保了对于给定键，映射中存储的是最近处理的值。
 //
-// Usage:
-// The addValue method is typically called during the route matching process, where path segments corresponding
-// to parameters in the route pattern are parsed and their values accumulated. Each time a segment is processed
-// and a parameter value is extracted, addValue is used to save that value with the corresponding parameter name.
+// 用法:
+// addValue方法通常在路由匹配过程中调用，期间解析与路由模式中的参数对应的路径段，并累积它们的值。
+// 每次处理一个段并提取参数值时，都会使用addValue来保存该值和相应的参数名称。
 //
-// Example:
-// For a URL pattern like "/users/:userID", when processing a request path like "/users/42", the method would
-// be invoked as addValue("userID", "42"), adding the parameter "userID" with the value "42" to the pathParams map.
+// 示例:
+// 对于像"/users/:userID"这样的URL模式，在处理像"/users/42"这样的请求路径时，
+// 该方法将被调用为addValue("userID", "42")，向pathParams映射添加参数"userID"及其值"42"。
 func (m *matchInfo) addValue(key string, value string) {
-	// Initialize the pathParams map if it hasn't been already to avoid nil map assignment panic.
+	// 如果尚未初始化pathParams映射，则进行初始化，以避免nil映射赋值导致的panic。
 	if m.pathParams == nil {
 		m.pathParams = map[string]string{key: value}
 	}
-	// Add or update the pathParams map with the key-value pair representing the URL parameter and its value.
+	// 向pathParams映射添加或更新键值对，表示URL参数及其值。
 	m.pathParams[key] = value
 }

@@ -1,7 +1,6 @@
 package mist
 
 import (
-	"github.com/hashicorp/golang-lru"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -9,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	lru "github.com/hashicorp/golang-lru"
 )
 
 // FileUploader defines a structure used for configuring and handling the upload of files in a web application.

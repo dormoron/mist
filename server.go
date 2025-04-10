@@ -2,73 +2,66 @@ package mist
 
 import (
 	"context"
+	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
-	"strconv"
 	"time"
 )
 
-// This line asserts that HTTPServer implements the Server interface at compile time.
-// If HTTPServer does not implement all the methods defined in the Server interface,
-// the program will not compile, and the compiler will provide an error message indicating
-// which method(s) are missing. This is a safeguard to ensure that HTTPServer correctly
-// fulfills the contract required by the Server interface, such as handling HTTP requests,
-// starting the server, and registering routes with associated middleware and handlers.
-var _ Server = &HTTPServer{} // Ensures HTTPServer implements the Server interface
+// 此行断言HTTPServer实现了Server接口（在编译时进行检查）。
+// 如果HTTPServer没有实现Server接口中定义的所有方法，
+// 程序将无法编译，编译器会提供错误消息指出缺少哪些方法。
+// 这是一个安全措施，确保HTTPServer正确履行Server接口所要求的职责，
+// 例如处理HTTP请求、启动服务器以及注册带有关联中间件和处理程序的路由。
+var _ Server = &HTTPServer{} // 确保HTTPServer实现了Server接口
 
-// Server defines the interface for an HTTP server that can handle requests and be started on a
-// specified address. It extends the http.Handler interface of the net/http package, which requires
-// a ServeHTTP method to serve HTTP requests. In addition to handling HTTP requests, the server can
-// register routes with associated handlers and middleware, and be started on a network address.
+// Server定义了一个可以处理请求并在指定地址上启动的HTTP服务器接口。
+// 它扩展了net/http包的http.Handler接口，该接口要求实现ServeHTTP方法来处理HTTP请求。
+// 除了处理HTTP请求外，服务器还可以注册带有关联处理程序和中间件的路由，并在网络地址上启动。
 //
-// Methods:
+// 方法:
 //
-//   - Start(addr string) error: Starts the server listening on the specified network address (addr).
-//     If the server fails to start, it returns an error.
+//   - Start(addr string) error: 在指定的网络地址(addr)上启动服务器。
+//     如果服务器启动失败，它会返回一个错误。
 //
-//   - registerRoute(method string, path string, handleFunc, mils ...Middleware): Registers
-//     a new route with a specific HTTP method and path. If provided, handleFunc becomes the main
-//     function to handle matched requests; mils represents variadic middleware functions which will be
-//     processed before the handleFunc upon route matching.
+//   - registerRoute(method string, path string, handleFunc, mils ...Middleware): 注册
+//     一个带有特定HTTP方法和路径的新路由。如果提供了handleFunc，它将成为处理匹配请求的
+//     主要函数；mils代表在路由匹配时将在handleFunc之前处理的可变中间件函数。
 //
-// Note:
-//   - The registerRoute method is generally not exposed and is intended for internal use by implementations
-//     of the Server interface. Implementations should ensure that routes are properly registered and
-//     middleware is correctly applied within this method.
+// 注意:
+//   - registerRoute方法通常不对外暴露，它主要供Server接口的实现内部使用。
+//     实现应确保正确注册路由并在此方法中正确应用中间件。
 //
-// Example:
-// An implementation of the Server interface could manage its own routing table and middleware stack,
-// allowing for modular and testable server designs. It would typically be used within an application
-// like so:
+// 示例:
+// Server接口的实现可以管理自己的路由表和中间件栈，
+// 允许模块化和可测试的服务器设计。通常在应用程序中的使用方式如下:
 //
 //	func main() {
-//	  srv := NewMyHTTPServer()  // MyHTTPServer implements the Server interface
+//	  srv := NewMyHTTPServer()  // MyHTTPServer实现了Server接口
 //	  srv.registerRoute("GET", "/", HomePageHandler, LoggingMiddleware)
 //	  err := srv.Start(":8080")
 //	  if err != nil {
-//	    log.Fatalf("Failed to start server: %v", err)
+//	    log.Fatalf("启动服务器失败: %v", err)
 //	  }
 //	}
 type Server interface {
-	http.Handler                                                                         // Inherited ServeHTTP method for handling requests
-	Start(addr string) error                                                             // Method to start the server on a given address
-	registerRoute(method string, path string, handleFunc HandleFunc, mils ...Middleware) // Internal route registration
+	http.Handler                                                                         // 继承的ServeHTTP方法用于处理请求
+	Start(addr string) error                                                             // 方法用于在给定地址上启动服务器
+	registerRoute(method string, path string, handleFunc HandleFunc, mils ...Middleware) // 内部路由注册
 }
 
-// HTTPServerOption defines a function type used to apply configuration options to an HTTPServer.
+// HTTPServerOption定义了一个用于应用配置选项到HTTPServer的函数类型。
 //
-// Each HTTPServerOption is a function that accepts a pointer to an HTTPServer and modifies it
-// according to some configuration logic. This pattern, often called "functional options", allows
-// for flexible, clear, and safe configurations when constructing an instance of HTTPServer.
-// It enables the programmer to chain multiple configuration options in a declarative way when
-// creating a new server instance or adjusting its settings.
+// 每个HTTPServerOption是一个接受指向HTTPServer的指针并根据某些配置逻辑修改它的函数。
+// 这种模式，通常称为"函数选项模式"，允许在构建HTTPServer实例时以灵活、清晰且安全的方式进行配置。
+// 它使程序员能够在创建新服务器实例或调整其设置时以声明式方式链接多个配置选项。
 //
-// Usage:
-// Developers can define custom HTTPServerOption functions that set various fields or initialize
-// certain parts of the HTTPServer. These options can then be passed to a constructor function
-// that applies them to the server instance.
+// 用法:
+// 开发者可以定义自定义HTTPServerOption函数，这些函数设置HTTPServer的各个字段或初始化其某些部分。
+// 然后可以将这些选项传递给一个构造函数，该函数将它们应用于服务器实例。
 //
-// Example:
+// 示例:
 //
 //	func WithTemplateEngine(engine TemplateEngine) HTTPServerOption {
 //	  return func(server *HTTPServer) {
@@ -82,63 +75,46 @@ type Server interface {
 //	  }
 //	}
 //
-//	// When initializing a new HTTPServer:
+//	// 初始化新的HTTPServer:
 //	srv := NewHTTPServer(
 //	  WithTemplateEngine(myTemplateEngine),
 //	  WithMiddleware(AuthMiddleware, LoggingMiddleware),
 //	)
-type HTTPServerOption func(server *HTTPServer) // Functional option for configuring an HTTPServer
+type HTTPServerOption func(server *HTTPServer) // 用于配置HTTPServer的函数选项
 
-// HTTPServer is a struct that defines the basic structure of an HTTP server
-// within a web application. It encapsulates the components necessary for handling
-// HTTP requests, such as routing, middleware processing, logging, and template
-// rendering. By organizing these functionalities into a single struct, it provides
-// a cohesive framework for developers to manage the server's behavior and configure
-// its various components efficiently.
-// Embedded and Fields:
+// HTTPServer是一个结构体，定义了Web应用程序中HTTP服务器的基本结构。
+// 它封装了处理HTTP请求所需的组件，如路由、中间件处理、日志记录和模板渲染。
+// 通过将这些功能组织到单个结构体中，它为开发者提供了一个内聚的框架，以高效地管理
+// 服务器的行为并配置其各种组件。
+// 嵌入字段和属性:
 //
-//	router: The router is an embedded field representing the server's routing
-//	        mechanism. As an embedded field, it provides the HTTPServer direct
-//	        access to the routing methods. The router is responsible for
-//	        mapping incoming requests to the appropriate handler functions
-//	        based on URL paths and HTTP methods.
-//	mils ([]Middleware): The mils slice holds the middleware functions that
-//	                     the server will execute sequentially for each request.
-//	                     Middleware functions are used to intercept and manipulate
-//	                     requests and responses, allowing for tasks such as
-//	                     auth, logging, and session management to be
-//	                     handled in a modular fashion.
-//	log (Logger): The log field is an instance of the Logger interface. This
-//	              abstraction allows the server to utilize various logging
-//	              implementations, providing the flexibility to log server events,
-//	              errors, and other informational messages in a standardized manner.
-//	templateEngine (TemplateEngine): The templateEngine field is an interface
-//	                                 that abstracts away the specifics of how
-//	                                 HTML templates are processed and rendered.
-//	                                 It allows the server to execute templates
-//	                                 and serve dynamic content, making it easy
-//	                                 to integrate different template processing
-//	                                 systems according to the application's needs.
+//	router: router是一个嵌入字段，代表服务器的路由机制。作为嵌入字段，
+//	        它为HTTPServer提供了直接访问路由方法的能力。router负责
+//	        根据URL路径和HTTP方法将传入请求映射到适当的处理函数。
+//	middlewares ([]Middleware): middlewares切片保存服务器将按顺序为每个请求执行的中间件函数。
+//	                           中间件函数用于拦截和操作请求和响应，允许身份验证、日志记录
+//	                           和会话管理等任务以模块化方式处理。
+//	log (Logger): log字段是Logger接口的一个实例。这种抽象允许服务器利用各种日志
+//	             实现，以标准化的方式灵活记录服务器事件、错误和其他信息。
+//	templateEngine (TemplateEngine): templateEngine字段是一个接口，它抽象了HTML模板
+//	                                 处理和渲染的具体细节。它允许服务器执行模板并提供
+//	                                 动态内容，使得根据应用程序需求轻松集成不同的模板处理
+//	                                 系统成为可能。
 //
-// Usage:
-// When constructing an HTTPServer, developers must initialize each component
-// before starting the server:
-//   - The router must be set up with routes that map URLs to handler functions.
-//   - Middleware functions must be added to the mils slice in the necessary order
-//     as they will be executed sequentially on each request.
-//   - A Logger implementation must be provided to the log field to record server
-//     operations, errors, and other events.
-//   - If the server will serve dynamic HTML content, a TemplateEngine that
-//     complies with the templateEngine interface must be assigned, enabling the
-//     server to render HTML templates with dynamic data.
+// 用法:
+// 构建HTTPServer时，开发者必须在启动服务器前初始化每个组件:
+//   - router必须设置路由，将URL映射到处理函数。
+//   - 必须按照必要的顺序将中间件函数添加到middlewares切片中，因为它们将按顺序执行。
+//   - 必须为log字段提供Logger实现，以记录服务器操作、错误和其他事件。
+//   - 如果服务器将提供动态HTML内容，必须分配一个符合templateEngine接口的TemplateEngine，
+//     使服务器能够用动态数据渲染HTML模板。
 //
-// By ensuring all these components are properly initialized, the HTTPServer
-// can efficiently manage inbound requests, apply necessary pre-processing,
-// handle routing, execute business logic, and generate dynamic responses.
+// 通过确保所有这些组件都被正确初始化，HTTPServer可以高效地管理入站请求，
+// 应用必要的预处理，处理路由，执行业务逻辑，并生成动态响应。
 type HTTPServer struct {
-	router                        // Embedded routing management. Provides direct access to routing methods.
-	log            Logger         // Logger interface. Allows for flexible and consistent logging.
-	templateEngine TemplateEngine // Template processor interface. Facilitates HTML template rendering.
+	router                        // 嵌入式路由管理。提供对路由方法的直接访问。
+	log            Logger         // 日志接口。允许灵活和一致的日志记录。
+	templateEngine TemplateEngine // 模板处理器接口。便于HTML模板渲染。
 	middlewares    []Middleware   // 全局中间件
 	httpServer     *http.Server   // 内置的HTTP服务器，用于配置和优雅关闭
 }
@@ -150,6 +126,13 @@ type ServerConfig struct {
 	IdleTimeout       time.Duration // 连接空闲超时时间
 	ReadHeaderTimeout time.Duration // 读取请求头的超时时间
 	MaxHeaderBytes    int           // 请求头的最大字节数
+	RequestTimeout    time.Duration // 单个请求处理的最大时间
+
+	// HTTP/2和HTTP/3支持
+	EnableHTTP2            bool          // 是否启用HTTP/2
+	EnableHTTP3            bool          // 是否启用HTTP/3
+	HTTP3IdleTimeout       time.Duration // HTTP/3连接空闲超时时间
+	QuicMaxIncomingStreams int           // QUIC最大并发流数量
 }
 
 // DefaultServerConfig 返回默认的服务器配置
@@ -159,7 +142,14 @@ func DefaultServerConfig() ServerConfig {
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		ReadHeaderTimeout: 10 * time.Second,
-		MaxHeaderBytes:    1 << 20, // 1MB
+		MaxHeaderBytes:    1 << 20,          // 1MB
+		RequestTimeout:    30 * time.Second, // 默认单个请求处理超时时间
+
+		// HTTP/2和HTTP/3默认配置
+		EnableHTTP2:            true,
+		EnableHTTP3:            false, // 默认不启用HTTP/3，需要显式开启
+		HTTP3IdleTimeout:       30 * time.Second,
+		QuicMaxIncomingStreams: 100,
 	}
 }
 
@@ -177,67 +167,61 @@ func WithServerConfig(config ServerConfig) HTTPServerOption {
 	}
 }
 
-// InitHTTPServer initializes and returns a pointer to a new HTTPServer instance. The server can be customized by
-// passing in various HTTPServerOption functions, which will modify the server's configuration according to the
-// functionalities encapsulated by those options. This pattern is known as the "functional options" pattern and allows
-// for flexible and readable server configuration without the need for a potentially long list of parameters.
+// InitHTTPServer 初始化并返回一个新的HTTPServer实例指针。可以通过传入各种HTTPServerOption函数
+// 来自定义服务器，这些函数将根据这些选项封装的功能修改服务器的配置。这种模式被称为"函数选项模式"，
+// 它允许灵活且可读的服务器配置，而不需要一个可能很长的参数列表。
 //
-// Parameters:
-//   - opts: A variadic array of HTTPServerOption functions. Each one is applied to the HTTPServer instance and can
-//     set or modify configurations such as middlewares, logging, server address, timeouts, etc.
+// 参数:
+//   - opts: 一个可变的HTTPServerOption函数数组。每个函数都被应用于HTTPServer实例，并可以
+//     设置或修改诸如中间件、日志记录、服务器地址、超时等配置。
 //
-// The InitHTTPServer function operates in the following steps:
+// InitHTTPServer函数按以下步骤操作:
 //
-//  1. Creates a new HTTPServer instance with some initial default settings.
-//     a. A router is initialized for the server to manage routing of incoming requests.
-//     b. A default logging function is set up to print messages to standard output, which can be overridden by an option.
-//  2. Iterates through each provided HTTPServerOption, applying it to the server instance. These options are functions
-//     that accept a *HTTPServer argument and modify its properties, thereby customizing the server according to the
-//     specific needs of the application.
-//  3. After applying all options, the function returns the customized HTTPServer instance, ready to be started and to
-//     begin handling incoming HTTP requests.
+//  1. 使用一些初始默认设置创建一个新的HTTPServer实例。
+//     a. 为服务器初始化一个router来管理传入请求的路由。
+//     b. 设置一个默认的日志记录函数，将消息打印到标准输出，可通过选项覆盖。
+//  2. 遍历每个提供的HTTPServerOption，将其应用于服务器实例。这些选项是接受*HTTPServer参数
+//     并修改其属性的函数，从而根据应用程序的特定需求定制服务器。
+//  3. 应用所有选项后，函数返回定制的HTTPServer实例，准备启动并开始处理传入的HTTP请求。
 //
-// This initialization function abstracts away the complexity of server setup and allows developers to specify only the
-// options relevant to their application, leading to cleaner and more maintainable server initialization code.
+// 这个初始化函数抽象了服务器设置的复杂性，允许开发者仅指定与其应用程序相关的选项，
+// 从而使服务器初始化代码更加清晰和可维护。
 func InitHTTPServer(opts ...HTTPServerOption) *HTTPServer {
-	// Create a new HTTPServer with a default configuration.
+	// 使用默认配置创建一个新的HTTPServer。
 	res := &HTTPServer{
-		router: initRouter(), // Initialize the HTTPServer's router for request handling.
+		router: initRouter(), // 初始化HTTPServer的路由器，用于请求处理。
 	}
 
-	// Apply each provided HTTPServerOption to the HTTPServer to configure it according to the user's requirements.
+	// 对HTTPServer应用每个提供的HTTPServerOption，根据用户需求配置它。
 	for _, opt := range opts {
-		opt(res) // Each 'opt' is a function that modifies the 'res' HTTPServer instance.
+		opt(res) // 每个'opt'是一个修改'res' HTTPServer实例的函数。
 	}
 
-	// Return the now potentially configured HTTPServer instance.
+	// 返回现在可能已配置的HTTPServer实例。
 	return res
 }
 
-// ServerWithTemplateEngine is a configuration function that returns an HTTPServerOption.
-// This option is used to set a specific TemplateEngine to the HTTPServer, which can then
-// be used to render HTML templates for the client. It's useful when your server needs to
-// deliver dynamic web pages that are generated from templates.
+// ServerWithTemplateEngine 是一个配置函数，返回一个HTTPServerOption。
+// 这个选项用于为HTTPServer设置特定的模板引擎，然后可以用来为客户端渲染HTML模板。
+// 当你的服务器需要提供从模板生成的动态网页时，这个功能很有用。
 //
-// A TemplateEngine is an interface or a set of functionalities that processes templates
-// with given data and produces an HTML output that the HTTP server can send to the client's
-// web browser.
+// 模板引擎是一个接口或一组功能，它处理模板及给定数据，并生成HTTP服务器可以发送到
+// 客户端网页浏览器的HTML输出。
 //
-// Usage example:
+// 使用示例:
 //
 //	server := NewHTTPServer(
 //	    ServerWithTemplateEngine(myTemplateEngine),
 //	)
 //
-// Parameters:
-//   - templateEngine : The template engine to be set on the HTTPServer.
-//     This parameter specifies the concrete implementation of a template engine
-//     that the server will use for rendering templates.
+// 参数:
+//   - templateEngine : 要设置到HTTPServer上的模板引擎。
+//     此参数指定服务器将用于渲染模板的模板引擎的具体实现。
 //
-// Returns:
-//   - HTTPServerOption : A function that configures the server with the specified template engine.
-//     When applied as an option to the server, it assigns the 'templateEngine' to the server's
-//     internal field for later use.
+// 返回:
+//   - HTTPServerOption : 一个用指定的模板引擎配置服务器的函数。
+//     当作为服务器的选项应用时，它将'templateEngine'分配给服务器的
+//     内部字段，以供以后使用。
 func ServerWithTemplateEngine(templateEngine TemplateEngine) HTTPServerOption {
 	return func(server *HTTPServer) {
 		server.templateEngine = templateEngine
@@ -252,135 +236,133 @@ func (s *HTTPServer) Use(mdls ...Middleware) {
 	s.middlewares = append(s.middlewares, mdls...)
 }
 
-// UseRoute associates a new route with the specified HTTP method and path to the server's routing system.
-// Additionally, it allows for the chaining of middleware functions that can intercept and modify the
-// request or response, or perform specific actions like logging, auth, etc., before the
-// request reaches the final handler function.
+// UseRoute 将一个新的路由与指定的HTTP方法和路径关联到服务器的路由系统中。
+// 此外，它允许链接可以在请求到达最终处理函数之前拦截并修改请求或响应，
+// 或执行特定操作如日志记录、身份验证等的中间件函数。
 //
-// Parameters:
-//   - method string: The HTTP method (e.g., GET, POST, PUT, DELETE) for which the route is to be registered.
-//   - path string: The path pattern to be matched against the URL of incoming requests.
-//   - mils ...Middleware: A variadic parameter that allows passing an arbitrary number of middleware
-//     functions. These functions are executed in the order they are provided, prior to the final handler.
+// 参数:
+//   - method string: 要为其注册路由的HTTP方法（例如，GET，POST，PUT，DELETE）。
+//   - path string: 与传入请求的URL匹配的路径模式。
+//   - mils ...Middleware: 一个可变参数，允许传递任意数量的中间件函数。
+//     这些函数按照提供的顺序执行，在最终处理程序之前。
 //
-// Usage:
-// When registering a route, you can specify the HTTP method and path, followed by the series of middleware
-// you wish to apply. If no final handler is provided at the time of route registration, one must be
-// attached later for the route to be functional.
+// 用法:
+// 注册路由时，可以指定HTTP方法和路径，然后是你希望应用的一系列中间件。
+// 如果在路由注册时没有提供最终处理程序，则以后必须附加一个，路由才能正常工作。
 //
-// Example usage:
+// 使用示例:
 //
 //	s.UseRoute("GET", "/articles", AuthMiddleware, LogMiddleware)
 //
-// Here, `AuthMiddleware` would be used to authenticate the request, and `LogMiddleware` would log the
-// request details. A route handler would need to be added subsequently to handle the GET requests for
-// `/articles` path.
+// 这里，`AuthMiddleware`将用于认证请求，`LogMiddleware`将记录请求详情。
+// 随后需要添加一个路由处理程序来处理`/articles`路径的GET请求。
 //
-// Note:
-// This method is used for initial route setup and must be combined with a handler registration to
-// create a complete, functional route. If a handler is not attached later, the route will not have any effect.
+// 注意:
+// 此方法用于初始路由设置，必须与处理程序注册组合以创建完整、功能性的路由。
+// 如果稍后没有附加处理程序，路由将不会有任何效果。
 func (s *HTTPServer) UseRoute(method string, path string, mils ...Middleware) {
 	s.registerRoute(method, path, nil, mils...)
 }
 
+// UseForAll 为指定路径注册所有HTTP方法的中间件
 func (s *HTTPServer) UseForAll(path string, mdls ...Middleware) {
-	// Register the middlewares for the HTTP GET method for the specified path.
+	// 为指定路径的HTTP GET方法注册中间件。
 	s.registerRoute(http.MethodGet, path, nil, mdls...)
-	// Register the middlewares for the HTTP POST method for the specified path.
+	// 为指定路径的HTTP POST方法注册中间件。
 	s.registerRoute(http.MethodPost, path, nil, mdls...)
-	// Register the middlewares for the HTTP OPTIONS method for the specified path.
+	// 为指定路径的HTTP OPTIONS方法注册中间件。
 	s.registerRoute(http.MethodOptions, path, nil, mdls...)
-	// Register the middlewares for the HTTP CONNECT method for the specified path.
+	// 为指定路径的HTTP CONNECT方法注册中间件。
 	s.registerRoute(http.MethodConnect, path, nil, mdls...)
-	// Register the middlewares for the HTTP DELETE method for the specified path.
+	// 为指定路径的HTTP DELETE方法注册中间件。
 	s.registerRoute(http.MethodDelete, path, nil, mdls...)
-	// Register the middlewares for the HTTP HEAD method for the specified path.
+	// 为指定路径的HTTP HEAD方法注册中间件。
 	s.registerRoute(http.MethodHead, path, nil, mdls...)
-	// Register the middlewares for the HTTP PATCH method for the specified path.
+	// 为指定路径的HTTP PATCH方法注册中间件。
 	s.registerRoute(http.MethodPatch, path, nil, mdls...)
-	// Register the middlewares for the HTTP PUT method for the specified path.
+	// 为指定路径的HTTP PUT方法注册中间件。
 	s.registerRoute(http.MethodPut, path, nil, mdls...)
-	// Register the middlewares for the HTTP TRACE method for the specified path.
+	// 为指定路径的HTTP TRACE方法注册中间件。
 	s.registerRoute(http.MethodTrace, path, nil, mdls...)
 }
 
-// ServeHTTP is the core method for handling incoming HTTP requests in the HTTPServer. This method fulfills the
-// http.Handler interface, making an HTTPServer instance compatible with Go's built-in HTTP server machinery.
-// ServeHTTP is responsible for creating the context for the request, applying middleware, and calling the final
-// request handler. After the request is processed, it ensures that any buffered response (if applicable) is flushed
-// to the client.
-//
-// Parameters:
-// - writer: An http.ResponseWriter that is used to write the HTTP response to be sent to the client.
-// - request: An *http.Request that represents the client's HTTP request being handled.
-//
-// The ServeHTTP function operates in the following manner:
-//
-//  1. It begins by creating a new Context instance, which is a custom type holding the HTTP request and response
-//     writer, along with other request-specific information like the templating engine.
-//  2. It retrieves the root handler from the server's configuration 's.httpServer', which represents the starting point
-//     for the request handling pipeline.
-//  3. Iteratively wraps the root handler with the server's configured middleware in reverse order. Middleware is
-//     essentially a chain of functions that can execute before and/or after the main request handler to perform
-//     tasks such as logging, auth, etc.
-//  4. Introduces a final middleware that calls the next handler in the chain and then flushes any buffered response
-//     using 's.flashResp'. This ensures that even if a response is buffered (for performance reasons or to allow
-//     for manipulations), it gets sent out after the request is processed.
-//  5. Calls the fully wrapped root handler, beginning the execution of the middleware chain and ultimately invoking
-//     the appropriate request handler.
+// ServeHTTP 是处理HTTP请求的主要入口点。
 func (s *HTTPServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	// Create the context that will traverse the request handling chain.
-	ctx := &Context{
-		Request:        request,          // The original HTTP request.
-		ResponseWriter: writer,           // The ResponseWriter to work with the HTTP response.
-		templateEngine: s.templateEngine, // The templating engine, if any, to render HTML views.
+	// 从对象池获取Context
+	var requestTimeout time.Duration
+	if s.httpServer != nil && s.httpServer.ReadTimeout > 0 {
+		requestTimeout = s.httpServer.ReadTimeout
+	} else {
+		requestTimeout = 30 * time.Second
 	}
+
+	ctx := GetContext(writer, request, requestTimeout)
+
+	// 处理完成后释放Context
+	defer ReleaseContext(ctx)
+
+	// 请求处理
 	s.server(ctx)
 }
 
-// flashResp is a method on the HTTPServer struct that commits the HTTP response
-// to the client. It is responsible for finalizing the response status code, setting
-// the appropriate headers, and writing the response data to the client. If any
-// errors occur during the response writing process, it will log a fatal error using
-// the server's configured default logger.
-//
-// Parameters:
-//
-//	ctx *Context: A pointer to the Context struct that contains information about
-//	              the current request, response, and additional data relevant to the
-//	              HTTP transaction. The Context struct holds the response writer,
-//	              the status code, and the response data to be sent back to the client.
-//
-// Usage:
-// This method is typically called after an HTTP request has been processed by
-// the server's handler functions and any associated middleware. It ensures that
-// the HTTP response is correctly formed and transmitted to the client, concluding
-// the request-handling cycle.
+// flashResp 将上下文中的响应数据发送回客户端
 func (s *HTTPServer) flashResp(ctx *Context) {
-	// If a status code has been set on the Context, write it as the HTTP response status code.
-	if !ctx.headerWritten && ctx.RespStatusCode > 0 {
-		ctx.writeHeader(ctx.RespStatusCode)
+	// 已经写入响应头但没有主体内容的情况
+	if ctx.headerWritten && ctx.RespData == nil {
+		return
 	}
 
-	// Calculate the length of the response data and set the "Content-Length" header accordingly.
-	// The Content-Length header is important as it tells the client how many bytes of data to expect.
-	ctx.ResponseWriter.Header().Set("Content-Length", strconv.Itoa(len(ctx.RespData)))
+	// 如果状态码已经被设置为0，使用默认的200 OK
+	if ctx.RespStatusCode == 0 {
+		ctx.RespStatusCode = http.StatusOK
+	}
 
-	// Write the response data to the HTTP client. The Write method of ResponseWriter
-	// is used to send the response payload contained within ctx.RespData.
-	_, err := ctx.ResponseWriter.Write(ctx.RespData)
-	if err != nil {
-		// In the event of a failure to write the response data to the client,
-		// log a fatal error with the defaultLogger. A fatal log typically indicates an
-		// error so severe that it is impossible to continue the operation of the program.
-		defaultLogger.Fatalln("Failed to write response data:", err)
+	// 写入响应头
+	ctx.writeHeader(ctx.RespStatusCode)
+
+	// 如果没有响应数据，直接返回
+	if ctx.RespData == nil || len(ctx.RespData) == 0 {
+		return
+	}
+
+	// 使用缓冲区池优化大响应
+	if len(ctx.RespData) > 4096 {
+		buffer := GetBuffer()
+		defer ReleaseBuffer(buffer)
+
+		// 将响应数据分块写入
+		const chunkSize = 4096
+		data := ctx.RespData
+		for len(data) > 0 {
+			// 计算当前块大小
+			size := chunkSize
+			if len(data) < size {
+				size = len(data)
+			}
+
+			// 重用buffer
+			buffer = append(buffer[:0], data[:size]...)
+			_, err := ctx.ResponseWriter.Write(buffer)
+			if err != nil {
+				s.log.Error("写入响应失败: %v", err)
+				return
+			}
+
+			// 移动到下一块
+			data = data[size:]
+		}
+	} else {
+		// 小响应直接写入
+		_, err := ctx.ResponseWriter.Write(ctx.RespData)
+		if err != nil {
+			s.log.Error("写入响应失败: %v", err)
+		}
 	}
 }
 
-// server is a method that handles incoming HTTP requests by resolving the appropriate
-// route and executing the associated handler, along with any applicable middlewares.
+// server 是一个方法，通过解析适当的路由和执行关联的处理程序以及任何适用的中间件来处理传入的HTTP请求。
 func (s *HTTPServer) server(ctx *Context) {
-	// Find the route that matches the method and path of the request.
+	// 查找匹配请求方法和路径的路由。
 	mi, ok := s.findRoute(ctx.Request.Method, ctx.Request.URL.Path)
 
 	// 如果没有匹配到路由，直接返回404
@@ -390,54 +372,50 @@ func (s *HTTPServer) server(ctx *Context) {
 		return
 	}
 
-	// If a matching node is found, populate the context with the route-specific
-	// path parameters and the matched route.
+	// 如果找到匹配的节点，填充上下文与特定路由相关的路径参数和匹配的路由。
 	if mi.n != nil {
 		ctx.PathParams = mi.pathParams
 		ctx.MatchedRoute = mi.n.route
 	}
 
-	// Define a root handle function that will attempt to execute the matched route's handler.
+	// 定义一个根处理函数，它将尝试执行匹配路由的处理程序。
 	var root HandleFunc = func(ctx *Context) {
 		// 路由已经匹配，直接调用处理函数
 		mi.n.handler(ctx)
 	}
 
-	// 收集所有中间件，顺序为：全局中间件 -> 路由中间件
+	// 收集所有中间件，修改顺序为：路由中间件 -> 全局中间件
 	var mdls []Middleware
 
-	// 先添加全局中间件（外层）
-	if len(s.middlewares) > 0 {
-		mdls = append(mdls, s.middlewares...)
-	}
-
-	// 再添加路由特定的中间件（内层）
+	// 先添加路由特定的中间件（外层）
 	if len(mi.mils) > 0 {
 		mdls = append(mdls, mi.mils...)
 	}
 
+	// 再添加全局中间件（内层）
+	if len(s.middlewares) > 0 {
+		mdls = append(mdls, s.middlewares...)
+	}
+
 	// 反向应用中间件，确保路由顺序是：
-	// 全局中间件开始 -> 路由中间件开始 -> 处理函数 -> 路由中间件结束 -> 全局中间件结束
+	// 路由中间件开始 -> 全局中间件开始 -> 处理函数 -> 全局中间件结束 -> 路由中间件结束
 	for i := len(mdls) - 1; i >= 0; i-- {
 		root = mdls[i](root)
 	}
 
-	// Define a middleware that ensures the response is properly sent after
-	// the handler (and any other middlewares) have finished processing.
+	// 定义一个中间件，确保在处理程序（和任何其他中间件）完成处理后正确发送响应。
 	var m Middleware = func(next HandleFunc) HandleFunc {
 		return func(ctx *Context) {
 			if ctx.Aborted {
-				// If the request has been aborted, immediately flush the response
-				// and do not call any further middlewares or handlers.
+				// 如果请求已被中止，立即刷新响应并且不调用任何进一步的中间件或处理程序。
 				s.flashResp(ctx)
 				return
 			}
 
-			next(ctx) // Call the next middleware or final handler.
+			next(ctx) // 调用下一个中间件或最终处理程序。
 
 			if ctx.Aborted {
-				// After executing the next middleware or final handler, again check if
-				// the request has been aborted. If so, flush the response immediately.
+				// 执行下一个中间件或最终处理程序后，再次检查请求是否已被中止。如果是，立即刷新响应。
 				s.flashResp(ctx)
 				return
 			}
@@ -446,37 +424,36 @@ func (s *HTTPServer) server(ctx *Context) {
 		}
 	}
 
-	// Wrap the root handler with the flushing middleware.
+	// 使用刷新中间件包装根处理程序。
 	root = m(root)
 
-	// Invoke the root function which represents the chain of middlewares
-	// ending with the route's handler.
+	// 调用根函数，它代表以路由的处理程序结束的中间件链。
 	root(ctx)
 }
 
-// Start initiates the HTTP server listening on the specified address. It sets up a TCP network listener on the
-// given address and then starts the HTTP server to accept and handle incoming requests using this listener. If
-// there is a problem creating the network listener or starting the server, it returns an error.
+// Start 启动HTTP服务器监听指定地址。它在给定地址上设置TCP网络监听器，
+// 然后启动HTTP服务器以使用此监听器接受和处理传入请求。如果创建网络监听器
+// 或启动服务器有问题，它会返回一个错误。
 //
-// Parameters:
-//   - addr: A string specifying the TCP address for the server to listen on. This typically includes a hostname or
-//     IP followed by a colon and the port number (e.g., "localhost:8080" or ":80"). If only the port number
-//     is specified with a leading colon, the server will listen on all available IP addresses on the given port.
+// 参数:
+//   - addr: 一个字符串，指定服务器要监听的TCP地址。这通常包括主机名或IP，
+//     后跟冒号和端口号（例如，"localhost:8080"或":80"）。如果只指定带前导冒号的
+//     端口号，服务器将在给定端口上的所有可用IP地址上监听。
 //
-// The Start function operates in the following manner:
+// Start函数按以下方式运行:
 //
-//  1. Calls net.Listen with "tcp" as the network type and the provided address. This attempts to create a listener
-//     that can accept incoming TCP connections on the specified address.
-//  2. If net.Listen returns an error, it is immediately returned to the caller, indicating that the listener could
-//     not be created (possibly due to an invalid address, inability to bind to the port, etc.).
-//  3. If the listener is successfully created, the function then calls http.Serve with the listener and the server
-//     itself as arguments. This starts the HTTP server, which begins listening for and handling requests. The server
-//     will use the ServeHTTP method of the HTTPServer to process each request.
-//  4. If http.Serve encounters an error, it will also be returned to the caller. This can happen if there's an
-//     unexpected issue while the server is running, such as a failure to accept a connection.
+//  1. 以"tcp"作为网络类型和提供的地址调用net.Listen。这尝试创建一个可以
+//     在指定地址上接受传入TCP连接的监听器。
+//  2. 如果net.Listen返回错误，它会立即返回给调用者，表明无法创建监听器
+//     （可能是由于无效地址、无法绑定到端口等）。
+//  3. 如果监听器成功创建，该函数然后以监听器和服务器本身作为参数调用http.Serve。
+//     这启动HTTP服务器，它开始监听和处理请求。服务器将使用HTTPServer的ServeHTTP方法
+//     处理每个请求。
+//  4. 如果http.Serve遇到错误，它也将返回给调用者。当服务器运行时遇到意外问题时
+//     可能会发生这种情况，比如无法接受连接。
 //
-// The Start method is a blocking call. Once called, it will continue to run, serving incoming HTTP requests until
-// an error is encountered or the server is manually stopped.
+// Start方法是一个阻塞调用。一旦调用，它将继续运行，服务传入的HTTP请求，
+// 直到遇到错误或服务器被手动停止。
 func (s *HTTPServer) Start(addr string) error {
 	// 如果server未初始化，使用默认配置
 	if s.httpServer == nil {
@@ -505,23 +482,60 @@ func (s *HTTPServer) Start(addr string) error {
 
 // StartTLS 启动HTTPS服务器
 func (s *HTTPServer) StartTLS(addr, certFile, keyFile string) error {
-	// 如果server未初始化，使用默认配置
-	if s.httpServer == nil {
-		s.httpServer = &http.Server{
-			Handler:           s,
-			ReadTimeout:       60 * time.Second,
-			WriteTimeout:      60 * time.Second,
-			IdleTimeout:       120 * time.Second,
-			ReadHeaderTimeout: 10 * time.Second,
-			MaxHeaderBytes:    1 << 20, // 1MB
-		}
-	} else {
-		s.httpServer.Handler = s
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
 	}
 
+	// 如果HTTPServer未初始化
+	if s.httpServer == nil {
+		s.httpServer = &http.Server{}
+	}
+
+	// 确保设置处理器
+	s.httpServer.Handler = s
+
+	// 配置TLS
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		NextProtos: []string{"h2", "http/1.1"}, // 支持HTTP/2和HTTP/1.1
+	}
+
+	// 应用服务器配置
+	s.httpServer.TLSConfig = tlsConfig
 	s.httpServer.Addr = addr
 
-	return s.httpServer.ListenAndServeTLS(certFile, keyFile)
+	// 启动HTTPS服务器
+	return s.httpServer.ServeTLS(listener, certFile, keyFile)
+}
+
+// StartHTTP3 启动支持HTTP/3的服务器
+func (s *HTTPServer) StartHTTP3(addr, certFile, keyFile string) error {
+	// 目前直接返回错误，需要引入第三方HTTP/3实现
+	return fmt.Errorf("HTTP/3 support requires quic-go package, please update your imports")
+
+	// 实际实现需要引入第三方包如quic-go
+	/*
+		// 配置QUIC传输
+		quicTransport := &http3.Server{
+			Server: s.httpServer,
+			QuicConfig: &quic.Config{
+				MaxIncomingStreams: s.ServerConfig.QuicMaxIncomingStreams,
+				MaxIdleTimeout:     s.ServerConfig.HTTP3IdleTimeout,
+			},
+		}
+
+		// 启动HTTP/3服务器
+		go func() {
+			err := quicTransport.ListenAndServeTLS(certFile, keyFile)
+			if err != nil {
+				s.log.Error("HTTP/3服务器启动失败: %v", err)
+			}
+		}()
+
+		// 同时启动HTTP/2作为回退选项
+		return s.StartTLS(addr, certFile, keyFile)
+	*/
 }
 
 // Shutdown 优雅关闭服务器，等待现有请求完成
@@ -532,244 +546,224 @@ func (s *HTTPServer) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// GET registers a new route with an associated handler function for HTTP GET requests.
-// This method is primarily used to retrieve data from the server.
+// GET 注册一个带有关联处理函数的新路由，用于HTTP GET请求。
+// 此方法主要用于从服务器检索数据。
 //
-// Parameters:
-//   - path string: The URL pattern to match for incoming GET requests. When a GET request
-//     arrives that matches this pattern, the associated handler function will be executed.
-//   - handleFunc: The function to be called when a request matching the path is
-//     received. The handler function is defined to take a *Context as its only parameter,
-//     through which it can access the request data and send a response back.
-//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
-//     before the handler function upon a route match.
+// 参数:
+//   - path string: 用于匹配传入GET请求的URL模式。当到达匹配此模式的GET请求时，
+//     关联的处理函数将被执行。
+//   - handleFunc: 当接收到匹配路径的请求时要调用的函数。处理函数被定义为
+//     只接受一个*Context参数，通过它可以访问请求数据并发送响应。
+//   - ms: 一个可变的Middleware函数切片，在路由匹配时，这些函数将按传入顺序
+//     在处理函数之前执行。
 //
-// Example usage:
+// 使用示例:
 //
 //	s.Get("/home", func(ctx *Context) {
-//	    // Handler logic for the `/home` path when an HTTP GET request is received
+//	    // 接收到HTTP GET请求时处理`/home`路径的处理程序逻辑
 //	})
 //
-// Note:
-// The method internally calls registerRoute to add the route to the server's routing
-// table with the method specified as `http.MethodGet`, which ensures that only GET
-// requests are handled by the provided handler.
+// 注意:
+// 该方法内部调用registerRoute来将路由添加到服务器的路由表中，
+// 将方法指定为`http.MethodGet`，这确保只有GET请求会被提供的处理程序处理。
 func (s *HTTPServer) GET(path string, handleFunc HandleFunc, ms ...Middleware) {
 	s.registerRoute(http.MethodGet, path, handleFunc, ms...)
 }
 
-// HEAD registers a new route and its associated handler function for HTTP HEAD requests.
-// This method is used to handle requests where the client is interested only in the response headers,
-// and not the actual body of the response, which is typical behavior of a HEAD request in HTTP.
+// HEAD 注册一个新的路由及其关联的处理函数，用于HTTP HEAD请求。
+// 此方法用于处理客户端只对响应头感兴趣而不需要实际响应体的请求，
+// 这是HTTP HEAD请求的典型行为。
 //
-// Parameters:
-//   - path string: The path pattern to which the route will respond. When a HEAD request to this
-//     pattern is received, the registered handler function will be executed.
-//   - handleFunc: The handler function that will be associated with the provided path
-//     pattern. This function will be called with a *Context parameter that contains information
-//     about the request and mechanisms to construct a response.
-//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
-//     before the handler function upon a route match.
+// 参数:
+//   - path string: 路由将响应的路径模式。当收到对此模式的HEAD请求时，
+//     注册的处理函数将被执行。
+//   - handleFunc: 与提供的路径模式关联的处理函数。此函数将使用包含请求信息
+//     和构建响应机制的*Context参数调用。
+//   - ms: 一个可变的Middleware函数切片，在路由匹配时，这些函数将按传入顺序
+//     在处理函数之前执行。
 //
-// Example usage:
+// 使用示例:
 //
 //	s.Head("/resource", func(ctx *Context) {
-//	    // Handler logic to return response headers for the '/resource' path
-//	    // without returning the actual body.
+//	    // 为'/resource'路径返回响应头的处理逻辑，
+//	    // 而不返回实际的响应体。
 //	})
 //
-// Note:
-// The method utilizes the registerRoute internal function to add the route to the server's
-// routing table specifically for the HEAD HTTP method, which ensures that only HEAD
-// requests will trigger the execution of the provided handler function.
+// 注意:
+// 该方法使用registerRoute内部函数将路由添加到服务器的路由表中，
+// 专门针对HEAD HTTP方法，这确保只有HEAD请求才会触发提供的处理函数的执行。
 func (s *HTTPServer) HEAD(path string, handleFunc HandleFunc, ms ...Middleware) {
 	s.registerRoute(http.MethodHead, path, handleFunc, ms...)
 }
 
-// POST registers a new route and its associated handler function for handling HTTP POST requests.
-// This method is used for routes that should accept data sent to the server, usually for the purpose of
-// creating or updating resources.
+// POST 注册一个新的路由及其关联的处理函数，用于处理HTTP POST请求。
+// 此方法用于应接受发送到服务器的数据的路由，通常是用于创建或更新资源。
 //
-// Parameters:
-//   - path string: The URL pattern to match against incoming POST requests. It defines the endpoint at
-//     which the handler function will be called for incoming POST requests.
-//   - handleFunc: The function to be executed when a POST request is made to the specified path.
-//     It receives a *Context object that contains the request information and provides the means to write
-//     a response back to the client.
-//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
-//     before the handler function upon a route match.
+// 参数:
+//   - path string: 用于匹配传入POST请求的URL模式。它定义了处理函数将在
+//     传入POST请求时被调用的端点。
+//   - handleFunc: 当对指定路径发出POST请求时要执行的函数。它接收一个
+//     *Context对象，该对象包含请求信息并提供向客户端写回响应的方法。
+//   - ms: 一个可变的Middleware函数切片，在路由匹配时，这些函数将按传入顺序
+//     在处理函数之前执行。
 //
-// Example usage:
+// 使用示例:
 //
 //	s.Post("/submit", func(ctx *Context) {
-//	    // Handler logic for processing the POST request to the `/submit` path.
+//	    // 处理对`/submit`路径的POST请求的逻辑。
 //	})
 //
-// Note:
-// The method delegates to registerRoute, internally setting the HTTP method to `http.MethodPost`. This
-// ensures that the registered handler is invoked only for POST requests matching the specified path.
+// 注意:
+// 该方法委托给registerRoute，内部将HTTP方法设置为`http.MethodPost`。
+// 这确保只有匹配指定路径的POST请求才会调用注册的处理程序。
 func (s *HTTPServer) POST(path string, handleFunc HandleFunc, ms ...Middleware) {
 	s.registerRoute(http.MethodPost, path, handleFunc, ms...)
 }
 
-// PUT registers a new route and its associated handler function for handling HTTP PUT requests.
-// This method is typically used to update an existing resource or create a new resource at a specific URL.
+// PUT 注册一个新的路由及其关联的处理函数，用于处理HTTP PUT请求。
+// 此方法通常用于更新现有资源或在特定URL创建新资源。
 //
-// Parameters:
-//   - path string: The URL pattern to which the server should listen for PUT requests. This pattern may include
-//     placeholders for dynamic segments of the URL, which can be used to pass variables to the handler function.
-//   - handleFunc: A callback function that will be invoked when a PUT request is made to the
-//     specified path. The function takes a *Context parameter that provides access to the request data and
-//     response writer.
-//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
-//     before the handler function upon a route match.
+// 参数:
+//   - path string: 服务器应监听PUT请求的URL模式。此模式可能包括URL的动态段的占位符，
+//     这些占位符可用于向处理函数传递变量。
+//   - handleFunc: 当对指定路径发出PUT请求时将调用的回调函数。该函数接受
+//     一个*Context参数，该参数提供对请求数据和响应编写器的访问。
+//   - ms: 一个可变的Middleware函数切片，在路由匹配时，这些函数将按传入顺序
+//     在处理函数之前执行。
 //
-// Example usage:
+// 使用示例:
 //
 //	s.Put("/items/{id}", func(ctx *Context) {
-//	    // Handler logic for updating an item with a particular ID using a PUT request.
+//	    // 使用PUT请求更新具有特定ID的项目的处理逻辑。
 //	})
 //
-// Note:
-// By calling registerRoute and specifying `http.MethodPut`, this method ensures that the handler is
-// specifically associated with PUT requests. If a PUT request is made on the matched path, the
-// corresponding handler function will be executed.
+// 注意:
+// 通过调用registerRoute并指定`http.MethodPut`，此方法确保处理程序
+// 专门与PUT请求相关联。如果对匹配的路径发出PUT请求，将执行相应的处理函数。
 func (s *HTTPServer) PUT(path string, handleFunc HandleFunc, ms ...Middleware) {
 	s.registerRoute(http.MethodPut, path, handleFunc, ms...)
 }
 
-// PATCH registers a new route with an associated handler function for HTTP PATCH requests.
-// This method is generally used for making partial updates to an existing resource.
+// PATCH 注册一个新的路由及其关联的处理函数，用于HTTP PATCH请求。
+// 此方法通常用于对现有资源进行部分更新。
 //
-// Parameters:
-//   - path string: The pattern of the URL that the server will match against incoming PATCH requests.
-//     The path can include variables that will be extracted from the URL and passed to the handler.
-//   - handleFunc: The function to execute when the server receives a PATCH request at the
-//     specified path. This function is provided with a *Context object, enabling access to request
-//     information and response functionalities.
-//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
-//     before the handler function upon a route match.
+// 参数:
+//   - path string: 服务器将匹配传入PATCH请求的URL模式。
+//     路径可以包含将从URL提取并传递给处理程序的变量。
+//   - handleFunc: 当服务器在指定路径接收到PATCH请求时执行的函数。
+//     此函数提供了*Context对象，使其能够访问请求信息和响应功能。
+//   - ms: 一个可变的Middleware函数切片，在路由匹配时，这些函数将按传入顺序
+//     在处理函数之前执行。
 //
-// Example usage:
+// 使用示例:
 //
 //	s.Patch("/profile/{id}", func(ctx *Context) {
-//	    // Handler logic to apply partial updates to a profile based on the ID in the URL.
+//	    // 基于URL中的ID对配置文件应用部分更新的处理逻辑。
 //	})
 //
-// Note:
-// Registering the route with the `http.MethodPatch` constant ensures that only PATCH requests are
-// handled by the provided function. The PATCH method is typically used to apply a partial update to
-// a resource, and this function is where you would define how the server handles such requests.
+// 注意:
+// 使用`http.MethodPatch`常量注册路由确保只有PATCH请求由提供的函数处理。
+// PATCH方法通常用于对资源应用部分更新，而此函数是您定义服务器如何处理此类请求的地方。
 func (s *HTTPServer) PATCH(path string, handleFunc HandleFunc, ms ...Middleware) {
 	s.registerRoute(http.MethodPatch, path, handleFunc, ms...)
 }
 
-// DELETE registers a new route with an associated handler function for HTTP DELETE requests.
-// This method is used to remove a resource identified by a URI.
+// DELETE 注册一个新的路由及其关联的处理函数，用于HTTP DELETE请求。
+// 此方法用于删除由URI标识的资源。
 //
-// Parameters:
-//   - path string: The URL pattern that the server will listen on for incoming DELETE requests.
-//     This parameter defines the endpoint at which the handler will be called when a DELETE
-//     request matches the path.
-//   - handleFunc: A function that is called when a DELETE request is made to the
-//     registered path. This function should contain the logic to handle the deletion of a
-//     resource, and it is provided with a *Context object to interact with the request and
-//     response data.
-//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
-//     before the handler function upon a route match.
+// 参数:
+//   - path string: 服务器将监听传入DELETE请求的URL模式。
+//     此参数定义了当DELETE请求匹配路径时将调用处理程序的端点。
+//   - handleFunc: 当对注册的路径发出DELETE请求时调用的函数。此函数应包含
+//     处理资源删除的逻辑，并提供*Context对象与请求和响应数据交互。
+//   - ms: 一个可变的Middleware函数切片，在路由匹配时，这些函数将按传入顺序
+//     在处理函数之前执行。
 //
-// Example usage:
+// 使用示例:
 //
 //	s.Delete("/users/{id}", func(ctx *Context) {
-//	    // Handler logic to delete a user resource with the given ID.
+//	    // 删除给定ID的用户资源的处理逻辑。
 //	})
 //
-// Note:
-// Using `http.MethodDelete` in the call to registerRoute confines this handler to respond
-// solely to DELETE requests, providing a way to define how the server handles deletions.
+// 注意:
+// 在调用registerRoute时使用`http.MethodDelete`将此处理程序限制为仅响应
+// DELETE请求，提供了一种定义服务器如何处理删除的方式。
 func (s *HTTPServer) DELETE(path string, handleFunc HandleFunc, ms ...Middleware) {
 	s.registerRoute(http.MethodDelete, path, handleFunc, ms...)
 }
 
-// CONNECT registers a new route with an associated handler function for handling HTTP CONNECT
-// requests. The HTTP CONNECT method is utilized primarily for establishing a tunnel to a server
-// identified by a given URI.
+// CONNECT 注册一个新的路由及其关联的处理函数，用于处理HTTP CONNECT请求。
+// HTTP CONNECT方法主要用于建立到由给定URI标识的服务器的隧道。
 //
-// Parameters:
-//   - path string: The endpoint or route pattern where the server will listen for incoming
-//     CONNECT requests. This may include parameter placeholders that can be used to extract
-//     values from the URL during request handling.
-//   - handleFunc: A callback function that is invoked in response to a CONNECT
-//     request to the given path. This function has access to the request and response through
-//     a *Context, providing the necessary tools to implement the tunneling behavior or other
-//     custom logic expected on a CONNECT request.
-//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
-//     before the handler function upon a route match.
+// 参数:
+//   - path string: 服务器将监听传入CONNECT请求的端点或路由模式。这可能包括
+//     参数占位符，可用于在请求处理期间从URL提取值。
+//   - handleFunc: 响应对给定路径的CONNECT请求而调用的回调函数。此函数通过
+//     *Context访问请求和响应，提供实现隧道行为或CONNECT请求上预期的
+//     其他自定义逻辑所需的工具。
+//   - ms: 一个可变的Middleware函数切片，在路由匹配时，这些函数将按传入顺序
+//     在处理函数之前执行。
 //
-// Example usage:
+// 使用示例:
 //
 //	s.Connect("/proxy", func(ctx *Context) {
-//	    // Logic to establish a proxy connection.
+//	    // 建立代理连接的逻辑。
 //	})
 //
-// Note:
-// The use of `http.MethodConnect` ensures that only HTTP CONNECT requests are matched to
-// this handler, facilitating the appropriate processing logic for these specialized request
-// types, which are different from the standard GET, POST, PUT, etc., methods.
+// 注意:
+// 使用`http.MethodConnect`确保只有HTTP CONNECT请求匹配到此处理程序，
+// 便于为这些专门的请求类型提供适当的处理逻辑，这些请求类型与标准的
+// GET、POST、PUT等方法不同。
 func (s *HTTPServer) CONNECT(path string, handleFunc HandleFunc, ms ...Middleware) {
 	s.registerRoute(http.MethodConnect, path, handleFunc, ms...)
 }
 
-// OPTIONS registers a new route with an associated handler function for HTTP OPTIONS requests.
-// The HTTP OPTIONS method is used to describe the communication options for the target resource.
+// OPTIONS 注册一个新的路由及其关联的处理函数，用于HTTP OPTIONS请求。
+// HTTP OPTIONS方法用于描述目标资源的通信选项。
 //
-// Parameters:
-//   - path string: The URL pattern that the server will match against incoming OPTIONS requests.
-//     Defining the endpoint allows clients to find out which methods and operations are supported
-//     at a given URL or server.
-//   - handleFunc: The function to be executed when an OPTIONS request is received.
-//     It typically provides information about the HTTP methods that are available for a
-//     particular URL endpoint. The handleFunc is supplied with a *Context object to facilitate
-//     interaction with the HTTP request and response.
-//   - ms: A variadic slice of Middleware functions that will be executed in the order they are passed
-//     before the handler function upon a route match.
+// 参数:
+//   - path string: 服务器将匹配传入OPTIONS请求的URL模式。
+//     定义端点允许客户端找出在给定URL或服务器上支持哪些方法和操作。
+//   - handleFunc: 收到OPTIONS请求时要执行的函数。它通常提供关于
+//     特定URL端点可用的HTTP方法的信息。handleFunc提供*Context对象，
+//     以促进与HTTP请求和响应的交互。
+//   - ms: 一个可变的Middleware函数切片，在路由匹配时，这些函数将按传入顺序
+//     在处理函数之前执行。
 //
-// Example usage:
+// 使用示例:
 //
 //	s.Options("/articles/{id}", func(ctx *Context) {
-//	    // Handler logic to indicate supported methods like GET, POST, PUT on the article resource.
+//	    // 处理逻辑，指示文章资源上支持的方法如GET、POST、PUT等。
 //	})
 //
-// Note:
-// This registration only affects OPTIONS requests due to the use of `http.MethodOptions`. It is
-// standard practice to implement this method on a server to inform clients about the methods and
-// content types that the server is capable of handling, thereby aiding the client's decision-making
-// regarding further actions.
+// 注意:
+// 由于使用了`http.MethodOptions`，此注册只影响OPTIONS请求。服务器上实现此方法是标准做法，
+// 以便向客户端通知服务器能够处理的方法和内容类型，从而帮助客户端决定进一步的操作。
 func (s *HTTPServer) OPTIONS(path string, handleFunc HandleFunc, ms ...Middleware) {
 	s.registerRoute(http.MethodOptions, path, handleFunc, ms...)
 }
 
-// registerRoute is a method on the HTTPServer struct that registers a route with the server.
-// This method is called by the various HTTP method-specific functions like GET, POST, and is
-// internally used to set up routes with their respective handlers and middleware.
+// registerRoute是HTTPServer结构体上的一个方法，用于在服务器上注册路由。
+// 这个方法被各种HTTP方法特定的函数（如GET、POST等）调用，并且
+// 在内部用于设置路由及其各自的处理程序和中间件。
 //
-// Parameters:
-//   - method: The HTTP method (e.g., GET, POST, PUT, etc.) that the route should respond to.
-//   - path: The URL pattern to match against incoming requests. It can include parameters marked
-//     with a colon ':' (e.g., '/users/:id') or wildcards '*'.
-//   - handleFunc: The function to be called when the route is matched. This function handles the
-//     HTTP request and generates a response. It can be nil if you're only attaching middleware.
-//   - mils: A variadic parameter of Middleware functions to be applied to the route. These are
-//     executed in the order they are provided, before the main handler function.
+// 参数:
+//   - method: 路由应响应的HTTP方法（例如，GET、POST、PUT等）。
+//   - path: 与传入请求匹配的URL模式。它可以包含用冒号':'标记的参数
+//     （例如，'/users/:id'）或通配符'*'。
+//   - handleFunc: 当路由匹配时要调用的函数。这个函数处理HTTP请求并生成响应。
+//     如果您只是附加中间件，它可以为nil。
+//   - mils: 一个可变参数，包含要应用于路由的中间件函数。这些函数
+//     按提供的顺序执行，在主处理函数之前。
 //
-// This function internally:
-//   - Validates the path starts with a '/' and doesn't contain unnecessary trailing slashes.
-//   - Adds the route and its handler to the router's internal routing tree.
-//   - Associates the provided middleware with the route.
+// 这个函数在内部:
+//   - 验证路径以'/'开始，并且不包含不必要的尾部斜杠。
+//   - 将路由及其处理程序添加到路由器的内部路由树中。
+//   - 将提供的中间件与路由关联。
 //
-// Note:
-// If you want to add middleware to all routes under a certain path, consider using the Group
-// functionality or the Use method instead.
+// 注意:
+// 如果您想为某个路径下的所有路由添加中间件，请考虑使用Group
+// 功能或Use方法。
 func (s *HTTPServer) registerRoute(method string, path string, handleFunc HandleFunc, mils ...Middleware) {
 	s.router.registerRoute(method, path, handleFunc, mils...)
 }

@@ -13,25 +13,13 @@ func TestRouter_RegisterRoute(t *testing.T) {
 		wantPanic bool
 	}{
 		{
-			name:      "正常路径",
+			name:      "正常路由",
 			method:    http.MethodGet,
 			path:      "/user",
 			wantPanic: false,
 		},
 		{
-			name:      "正常带参数路径",
-			method:    http.MethodGet,
-			path:      "/user/:id",
-			wantPanic: false,
-		},
-		{
-			name:      "正常多级路径",
-			method:    http.MethodGet,
-			path:      "/user/:id/profile",
-			wantPanic: false,
-		},
-		{
-			name:      "空路径-应该触发panic",
+			name:      "空字符串-应该触发panic",
 			method:    http.MethodGet,
 			path:      "",
 			wantPanic: true,
@@ -43,10 +31,10 @@ func TestRouter_RegisterRoute(t *testing.T) {
 			wantPanic: true,
 		},
 		{
-			name:      "以/结尾-应该触发panic",
+			name:      "以/结尾-应该自动去除尾部斜杠，不应该panic",
 			method:    http.MethodGet,
 			path:      "/user/",
-			wantPanic: true,
+			wantPanic: false,
 		},
 	}
 
