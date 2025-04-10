@@ -2,8 +2,11 @@ package accesslog
 
 import (
 	"encoding/json"
-	"github.com/dormoron/mist"
+	"fmt"
 	"log"
+	"time"
+
+	"github.com/dormoron/mist"
 )
 
 // MiddlewareBuilder is a struct that facilitates the creation of middleware functions with
@@ -38,6 +41,10 @@ type MiddlewareBuilder struct {
 	// The behavior of logging—where and how the log messages are output—is determined by the implementation
 	// of this function provided by the user.
 	logFunc func(log string)
+	// 是否使用彩色输出
+	colorful bool
+	// 是否使用格式化输出而非JSON
+	prettyFormat bool
 }
 
 // LogFunc assigns a custom logging function to the MiddlewareBuilder instance. This method is used
@@ -75,6 +82,32 @@ func (b *MiddlewareBuilder) LogFunc(fn func(log string)) *MiddlewareBuilder {
 	return b
 }
 
+// Colorful 设置是否使用彩色输出
+// Parameters:
+//
+//	enabled: 是否启用彩色输出
+//
+// Returns:
+//
+//	*MiddlewareBuilder: 当前构建器实例，支持链式调用
+func (b *MiddlewareBuilder) Colorful(enabled bool) *MiddlewareBuilder {
+	b.colorful = enabled
+	return b
+}
+
+// PrettyFormat 设置是否使用格式化输出而非JSON
+// Parameters:
+//
+//	enabled: 是否启用格式化输出
+//
+// Returns:
+//
+//	*MiddlewareBuilder: 当前构建器实例，支持链式调用
+func (b *MiddlewareBuilder) PrettyFormat(enabled bool) *MiddlewareBuilder {
+	b.prettyFormat = enabled
+	return b
+}
+
 // InitMiddleware initializes a new instance of the MiddlewareBuilder struct with default
 // configuration settings. It sets up a standard logging function that will log access
 // events using the Go standard library's log package. The returned MiddlewareBuilder
@@ -97,6 +130,8 @@ func InitMiddleware() *MiddlewareBuilder {
 		logFunc: func(accessLog string) {
 			log.Println(accessLog)
 		},
+		colorful:     false,
+		prettyFormat: false,
 	}
 }
 
@@ -124,23 +159,74 @@ func (b *MiddlewareBuilder) Build() mist.Middleware {
 		// in the middleware chain and also returns a mist.HandleFunc. This allows it to be used within
 		// the 'mist' framework as a middleware.
 		return func(ctx *mist.Context) {
+			// 记录请求开始时间
+			startTime := time.Now()
+
 			// Define a deferred function that will always run after the request processing is completed.
 			// This deferred function creates an access log struct containing relevant request information,
 			// marshals it to JSON, and then logs it using the `logFunc` defined in the MiddlewareBuilder.
 			defer func() {
+				// 计算请求处理时间
+				duration := time.Since(startTime)
+
 				// Compile access log information into a struct from the provided context `ctx`.
 				log := accessLog{
-					Host:       ctx.Request.Host,     // Hostname from the HTTP request
-					StatusCode: ctx.RespStatusCode,   // status code the HTTP request
-					Route:      ctx.MatchedRoute,     // The route pattern matched for the request
-					Method:     ctx.Request.Method,   // HTTP method, e.g., GET, POST
-					Path:       ctx.Request.URL.Path, // Request path
+					Host:       ctx.Request.Host,        // Hostname from the HTTP request
+					StatusCode: ctx.RespStatusCode,      // status code the HTTP request
+					Route:      ctx.MatchedRoute,        // The route pattern matched for the request
+					Method:     ctx.Request.Method,      // HTTP method, e.g., GET, POST
+					Path:       ctx.Request.URL.Path,    // Request path
+					Duration:   duration.Milliseconds(), // 请求处理时间（毫秒）
 				}
-				// Convert the access log struct to JSON format.
-				data, _ := json.Marshal(log)
+
+				var logMessage string
+				if b.prettyFormat {
+					// 使用格式化输出
+					var statusColor, methodColor, resetColor string
+					if b.colorful {
+						// 颜色代码
+						resetColor = "\033[0m"
+
+						// 根据状态码选择颜色
+						if log.StatusCode >= 200 && log.StatusCode < 300 {
+							statusColor = "\033[32m" // 绿色
+						} else if log.StatusCode >= 300 && log.StatusCode < 400 {
+							statusColor = "\033[33m" // 黄色
+						} else {
+							statusColor = "\033[31m" // 红色
+						}
+
+						// 根据HTTP方法选择颜色
+						switch log.Method {
+						case "GET":
+							methodColor = "\033[34m" // 蓝色
+						case "POST":
+							methodColor = "\033[32m" // 绿色
+						case "PUT":
+							methodColor = "\033[33m" // 黄色
+						case "DELETE":
+							methodColor = "\033[31m" // 红色
+						default:
+							methodColor = "\033[0m" // 默认
+						}
+					}
+
+					// 格式化输出日志
+					logMessage = fmt.Sprintf("%s%s%s %s%s%s %s%d%s %s %dms",
+						methodColor, log.Method, resetColor,
+						statusColor, log.Path, resetColor,
+						statusColor, log.StatusCode, resetColor,
+						log.Route,
+						log.Duration)
+				} else {
+					// 使用JSON格式
+					data, _ := json.Marshal(log)
+					logMessage = string(data)
+				}
+
 				// Log the access log JSON string via the logging function provided to the builder.
 				// This employs the strategy we previously set with MiddlewareBuilder.LogFunc.
-				b.logFunc(string(data))
+				b.logFunc(logMessage)
 			}()
 
 			// Call the next handler in the middleware chain with the current context.
@@ -175,9 +261,10 @@ func (b *MiddlewareBuilder) Build() mist.Middleware {
 // An instance of accessLog is created and populated with data from an HTTP request context and then marshalled into JSON.
 // The JSON output is then passed to a logging function to record the incoming requests being handled by an HTTP server.
 type accessLog struct {
-	Host       string `json:"host,omitempty"`   // The server host name or IP address from the HTTP request.
-	Route      string `json:"route,omitempty"`  // The matched route pattern for the request.
-	Method     string `json:"method,omitempty"` // The method used in the request (e.g., GET, POST).
-	Path       string `json:"path,omitempty"`   // The path of the HTTP request URL.
-	StatusCode int    `json:"status,omitempty"` //The statusCode of the HTTP request status.
+	Host       string `json:"host,omitempty"`     // The server host name or IP address from the HTTP request.
+	Route      string `json:"route,omitempty"`    // The matched route pattern for the request.
+	Method     string `json:"method,omitempty"`   // The method used in the request (e.g., GET, POST).
+	Path       string `json:"path,omitempty"`     // The path of the HTTP request URL.
+	StatusCode int    `json:"status,omitempty"`   // The statusCode of the HTTP request status.
+	Duration   int64  `json:"duration,omitempty"` // 请求处理时间（毫秒）
 }
