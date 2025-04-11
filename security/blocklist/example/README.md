@@ -9,7 +9,7 @@
 - IP白名单支持
 - 自动清理过期记录
 - 支持手动封禁和解除封禁IP
-- 支持标准HTTP中间件和Mist框架中间件
+- 支持Mist框架中间件
 
 ## 运行示例
 
@@ -134,7 +134,7 @@ curl http://localhost:8080/api/admin/status?ip=127.0.0.1
 
 ## 在Mist框架中使用
 
-此示例主要展示了在标准HTTP服务中使用IP黑名单功能，但Mist框架也提供了更简洁的集成方式：
+此示例主要展示了如何在Mist框架中使用IP黑名单功能：
 
 ```go
 package main
@@ -150,7 +150,7 @@ import (
 
 func main() {
     // 创建Mist应用
-    app := mist.New()
+    app := mist.InitHTTPServer()
     
     // 创建IP黑名单管理器
     blocklistManager := blocklist.NewManager(
@@ -158,10 +158,10 @@ func main() {
         blocklist.WithBlockDuration(5*time.Minute),
     )
     
-    // 使用默认配置
-    // app.Use(middleware.New(blocklistManager))
+    // 使用中间件
+    app.Use(middleware.New(blocklistManager))
     
-    // 使用自定义封禁处理函数
+    // 或使用自定义封禁处理函数
     app.Use(middleware.New(
         blocklistManager,
         middleware.WithOnBlocked(func(ctx *mist.Context) {
@@ -169,14 +169,24 @@ func main() {
             log.Printf("IP %s 已被封禁", ctx.ClientIP())
             
             // 返回JSON响应
-            ctx.RespondWithJSON(http.StatusForbidden, map[string]interface{}{
+            ctx.JSON(http.StatusForbidden, map[string]interface{}{
                 "status":  "error",
                 "message": "您的IP因多次失败的尝试已被暂时封禁，请稍后再试",
             })
         }),
     ))
     
-    // 设置路由和处理函数...
+    // 设置路由和处理函数
+    app.POST("/api/login", func(ctx *mist.Context) {
+        // 登录逻辑...
+    })
+    
+    app.GET("/api/protected", func(ctx *mist.Context) {
+        ctx.JSON(200, map[string]interface{}{
+            "status": "success",
+            "message": "这是受保护的API接口",
+        })
+    })
     
     // 启动服务器
     app.Run(":8080")
@@ -185,14 +195,13 @@ func main() {
 
 ## 自定义配置选项
 
-### 标准HTTP中间件选项（用于blocklist.Manager.Middleware）
+### 配置选项
 
-- `WithMaxFailedAttempts(max int)` - 设置最大失败尝试次数
-- `WithBlockDuration(duration time.Duration)` - 设置封禁时长
-- `WithClearInterval(interval time.Duration)` - 设置清理间隔时间
-- `WithWhitelistIPs(ips []string)` - 设置IP白名单
-- `WithOnBlocked(handler func(w http.ResponseWriter, r *http.Request))` - 设置封禁处理函数
+- `blocklist.WithMaxFailedAttempts(max int)` - 设置最大失败尝试次数
+- `blocklist.WithBlockDuration(duration time.Duration)` - 设置封禁时长
+- `blocklist.WithClearInterval(interval time.Duration)` - 设置清理间隔时间
+- `blocklist.WithWhitelistIPs(ips []string)` - 设置IP白名单
 
-### Mist框架中间件选项（用于middleware.New）
+### Mist框架中间件选项
 
 - `middleware.WithOnBlocked(handler func(*mist.Context))` - 设置Mist框架中的封禁处理函数 

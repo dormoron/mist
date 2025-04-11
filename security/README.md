@@ -31,7 +31,7 @@ func main() {
 	security.SetSecurityLevel(security.LevelIntermediate)
 	
 	// 创建应用实例
-	app := mist.Default()
+	app := mist.InitHTTPServer()
 	
 	// 路由和其他配置...
 	
@@ -50,7 +50,7 @@ import (
 )
 
 func main() {
-	app := mist.Default()
+	app := mist.InitHTTPServer()
 	
 	// 添加CSRF中间件
 	app.Use(csrf.New())
@@ -77,7 +77,7 @@ import (
 )
 
 func main() {
-	app := mist.Default()
+	app := mist.InitHTTPServer()
 	
 	// 创建内存限流器（每秒10个请求，突发20个请求）
 	limiter := ratelimit.NewMemoryLimiter(10, 20)
@@ -109,7 +109,7 @@ import (
 )
 
 func main() {
-	app := mist.Default()
+	app := mist.InitHTTPServer()
 	
 	// 添加安全头部中间件（使用默认配置）
 	app.Use(headers.New())
@@ -189,7 +189,7 @@ import (
 )
 
 func main() {
-	app := mist.Default()
+	app := mist.InitHTTPServer()
 	
 	// 配置Redis客户端
 	redisClient := redis.NewClient(&redis.Options{
@@ -222,7 +222,7 @@ import (
 )
 
 func main() {
-	app := mist.Default()
+	app := mist.InitHTTPServer()
 	
 	// 创建内存存储的MFA验证状态管理器
 	store := mfa.NewMemoryStore()
@@ -300,7 +300,7 @@ import (
 )
 
 func main() {
-	app := mist.Default()
+	app := mist.InitHTTPServer()
 	
 	// 创建IP黑名单管理器
 	blocklistManager := blocklist.NewManager(
@@ -402,6 +402,7 @@ import (
 	"github.com/dormoron/mist"
 	"github.com/dormoron/mist/security"
 	"github.com/dormoron/mist/security/csrf"
+	"github.com/dormoron/mist/security/blocklist/middleware"
 	"github.com/dormoron/mist/security/headers"
 	"github.com/dormoron/mist/security/ratelimit"
 	"github.com/dormoron/mist/security/redisess"
@@ -415,7 +416,7 @@ func main() {
 	security.SetSecurityLevel(security.LevelStrict)
 	
 	// 创建应用实例
-	app := mist.Default()
+	app := mist.InitHTTPServer()
 	
 	// 配置Redis客户端
 	redisClient := redis.NewClient(&redis.Options{
@@ -442,7 +443,7 @@ func main() {
 	// 添加安全中间件
 	
 	// 1. IP黑名单
-	app.Use(blocklistManager.Middleware())
+	app.Use(middleware.New(blocklistManager))
 	
 	// 2. 安全HTTP头
 	app.Use(headers.New(
