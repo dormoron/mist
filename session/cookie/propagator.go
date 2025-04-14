@@ -420,3 +420,21 @@ func (p *CookiePropagator) Remove(writer http.ResponseWriter) error {
 func (p *CookiePropagator) SetMaxAge(maxAge int) {
 	p.maxAge = maxAge
 }
+
+// SetSameSite 设置Cookie的SameSite属性
+// 这个方法允许动态调整现有CookiePropagator的SameSite设置
+func (p *CookiePropagator) SetSameSite(sameSite http.SameSite) {
+	p.sameSite = sameSite
+}
+
+// SetSecure 设置Cookie的Secure属性
+// 这个方法允许动态调整现有CookiePropagator的Secure设置
+func (p *CookiePropagator) SetSecure(secure bool) {
+	p.secure = secure
+}
+
+// SetHTTPOnly 设置Cookie的HttpOnly属性
+// 这个方法允许动态调整现有CookiePropagator的HttpOnly设置
+func (p *CookiePropagator) SetHTTPOnly(httpOnly bool) {
+	p.httpOnly = httpOnly
+}

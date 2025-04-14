@@ -80,6 +80,24 @@ type SessionConfig struct {
 
 	// RefreshTokenHeader 刷新令牌的HTTP头
 	RefreshTokenHeader string
+
+	// IdleTimeout 会话闲置超时时间
+	IdleTimeout time.Duration
+
+	// AbsoluteTimeout 会话绝对过期时间（无论活动与否）
+	AbsoluteTimeout time.Duration
+
+	// EnableFingerprinting 启用会话指纹绑定
+	EnableFingerprinting bool
+
+	// RotateTokenOnValidation 每次认证成功后轮换会话令牌
+	RotateTokenOnValidation bool
+
+	// RequireReauthForSensitive 敏感操作需要重新验证
+	RequireReauthForSensitive bool
+
+	// ReauthTimeout 重新验证超时时间
+	ReauthTimeout time.Duration
 }
 
 // CSRFConfig CSRF配置
@@ -149,6 +167,36 @@ type HeadersConfig struct {
 
 	// ContentSecurityPolicy 内容安全策略
 	ContentSecurityPolicy string
+
+	// EnablePermissionsPolicy 是否启用权限策略
+	EnablePermissionsPolicy bool
+
+	// PermissionsPolicy 权限策略内容
+	PermissionsPolicy string
+
+	// EnableCrossOriginPolicies 是否启用跨域策略
+	EnableCrossOriginPolicies bool
+
+	// CrossOriginEmbedderPolicy 跨域嵌入者策略
+	CrossOriginEmbedderPolicy string
+
+	// CrossOriginOpenerPolicy 跨域打开者策略
+	CrossOriginOpenerPolicy string
+
+	// CrossOriginResourcePolicy 跨域资源策略
+	CrossOriginResourcePolicy string
+
+	// EnableCacheControl 是否启用缓存控制
+	EnableCacheControl bool
+
+	// CacheControl 缓存控制内容
+	CacheControl string
+
+	// EnableReferrerPolicy 是否启用引用策略
+	EnableReferrerPolicy bool
+
+	// ReferrerPolicy 引用策略内容
+	ReferrerPolicy string
 }
 
 // AuthConfig 身份验证配置
@@ -164,6 +212,30 @@ type AuthConfig struct {
 
 	// LockoutDuration 锁定时长
 	LockoutDuration time.Duration
+
+	// AccountLockout 账户锁定策略
+	AccountLockout AccountLockoutConfig
+}
+
+// AccountLockoutConfig 账户锁定配置
+type AccountLockoutConfig struct {
+	// Enabled 是否启用账户锁定
+	Enabled bool
+
+	// MaxAttempts 允许的最大失败尝试次数
+	MaxAttempts int
+
+	// LockoutDuration 锁定持续时间
+	LockoutDuration time.Duration
+
+	// ResetDuration 失败尝试记录重置时间
+	ResetDuration time.Duration
+
+	// IncludeIPInKey 是否在锁定键中包含IP地址
+	IncludeIPInKey bool
+
+	// CleanupInterval 清理过期锁定记录的间隔
+	CleanupInterval time.Duration
 }
 
 // PasswordConfig 密码配置
@@ -211,43 +283,74 @@ func basicSecurityConfig() SecurityConfig {
 	return SecurityConfig{
 		Level: LevelBasic,
 		Session: SessionConfig{
-			Enabled:            true,
-			Path:               "/",
-			MaxAge:             24 * time.Hour,
-			HttpOnly:           true,
-			SameSite:           http.SameSiteLaxMode,
-			AccessTokenExpiry:  15 * time.Minute,
-			RefreshTokenExpiry: 7 * 24 * time.Hour,
-			TokenHeader:        "Authorization",
-			AccessTokenHeader:  "X-Access-Token",
-			RefreshTokenHeader: "X-Refresh-Token",
+			Enabled:                   true,
+			Domain:                    "",
+			Path:                      "/",
+			MaxAge:                    24 * time.Hour,
+			Secure:                    false,
+			HttpOnly:                  true,
+			SameSite:                  http.SameSiteLaxMode,
+			AccessTokenExpiry:         15 * time.Minute,
+			RefreshTokenExpiry:        7 * 24 * time.Hour,
+			TokenHeader:               "Authorization",
+			AccessTokenHeader:         "X-Access-Token",
+			RefreshTokenHeader:        "X-Refresh-Token",
+			IdleTimeout:               30 * time.Minute,
+			AbsoluteTimeout:           24 * time.Hour,
+			EnableFingerprinting:      false,
+			RotateTokenOnValidation:   false,
+			RequireReauthForSensitive: false,
+			ReauthTimeout:             10 * time.Minute,
 		},
 		CSRF: CSRFConfig{
-			Enabled:       true,
+			Enabled:       false,
 			TokenLength:   32,
-			CookieName:    "_csrf",
+			CookieName:    "csrf_token",
 			HeaderName:    "X-CSRF-Token",
 			FormField:     "csrf_token",
-			IgnoreMethods: []string{"GET", "HEAD", "OPTIONS", "TRACE"},
+			IgnoreMethods: []string{"GET", "HEAD", "OPTIONS"},
 		},
 		RateLimit: RateLimitConfig{
 			Enabled:           false,
 			Rate:              100,
 			Burst:             200,
-			EnableIPRateLimit: true,
+			EnableIPRateLimit: false,
 			UseRedisBackend:   false,
 		},
 		Headers: HeadersConfig{
-			EnableXSSProtection:      true,
-			EnableContentTypeNosniff: true,
-			EnableXFrameOptions:      true,
-			XFrameOptionsValue:       "SAMEORIGIN",
-			EnableHSTS:               false,
+			EnableXSSProtection:       true,
+			EnableContentTypeNosniff:  true,
+			EnableXFrameOptions:       true,
+			XFrameOptionsValue:        "SAMEORIGIN",
+			EnableHSTS:                false,
+			HSTSMaxAge:                0,
+			HSTSIncludeSubdomains:     false,
+			HSTSPreload:               false,
+			ContentSecurityPolicy:     "",
+			EnablePermissionsPolicy:   false,
+			PermissionsPolicy:         "",
+			EnableCrossOriginPolicies: false,
+			CrossOriginEmbedderPolicy: "",
+			CrossOriginOpenerPolicy:   "",
+			CrossOriginResourcePolicy: "",
+			EnableCacheControl:        false,
+			CacheControl:              "",
+			EnableReferrerPolicy:      false,
+			ReferrerPolicy:            "",
 		},
 		Auth: AuthConfig{
+			JWTSecret:          "default_jwt_secret_change_me_in_production",
 			EnableRefreshToken: true,
-			MaxLoginAttempts:   5,
-			LockoutDuration:    15 * time.Minute,
+			MaxLoginAttempts:   0,
+			LockoutDuration:    0,
+			AccountLockout: AccountLockoutConfig{
+				Enabled:         false,
+				MaxAttempts:     5,
+				LockoutDuration: 15 * time.Minute,
+				ResetDuration:   24 * time.Hour,
+				IncludeIPInKey:  true,
+				CleanupInterval: 30 * time.Minute,
+			},
 		},
 		Password: PasswordConfig{
 			MinLength:           8,
@@ -255,8 +358,8 @@ func basicSecurityConfig() SecurityConfig {
 			RequireLowercase:    false,
 			RequireDigits:       false,
 			RequireSpecialChars: false,
-			MaxAge:              0, // 无过期时间
-			PreventReuseCount:   0, // 不限制重复使用
+			MaxAge:              0,
+			PreventReuseCount:   0,
 		},
 	}
 }
@@ -266,23 +369,34 @@ func intermediateSecurityConfig() SecurityConfig {
 	config := basicSecurityConfig()
 	config.Level = LevelIntermediate
 
-	// 会话设置
+	// 会话配置增强
 	config.Session.Secure = true
-	config.Session.AccessTokenExpiry = 10 * time.Minute
+	config.Session.IdleTimeout = 15 * time.Minute
+	config.Session.AbsoluteTimeout = 12 * time.Hour
+	config.Session.EnableFingerprinting = true
+	config.Session.RotateTokenOnValidation = true
 
-	// 限流设置
+	// 启用CSRF保护
+	config.CSRF.Enabled = true
+
+	// 启用适度的限流
 	config.RateLimit.Enabled = true
-	config.RateLimit.Rate = 60
-	config.RateLimit.Burst = 120
+	config.RateLimit.EnableIPRateLimit = true
 
-	// 头部设置
+	// 增强HTTP头
 	config.Headers.EnableHSTS = true
 	config.Headers.HSTSMaxAge = 180 * 24 * time.Hour
 	config.Headers.HSTSIncludeSubdomains = true
 	config.Headers.ContentSecurityPolicy = "default-src 'self'"
+	config.Headers.EnablePermissionsPolicy = true
+	config.Headers.PermissionsPolicy = "geolocation=self"
+	config.Headers.EnableReferrerPolicy = true
+	config.Headers.ReferrerPolicy = "strict-origin-when-cross-origin"
 
-	// 密码设置
-	config.Password.MinLength = 10
+	// 启用账户锁定
+	config.Auth.AccountLockout.Enabled = true
+
+	// 增强密码安全性
 	config.Password.RequireUppercase = true
 	config.Password.RequireLowercase = true
 	config.Password.RequireDigits = true
@@ -297,28 +411,36 @@ func strictSecurityConfig() SecurityConfig {
 	config := intermediateSecurityConfig()
 	config.Level = LevelStrict
 
-	// 会话设置
+	// 会话安全强化
+	config.Session.MaxAge = 8 * time.Hour
 	config.Session.AccessTokenExpiry = 5 * time.Minute
-	config.Session.SameSite = http.SameSiteStrictMode
+	config.Session.IdleTimeout = 10 * time.Minute
+	config.Session.RequireReauthForSensitive = true
+	config.Session.ReauthTimeout = 5 * time.Minute
 
-	// 限流设置
+	// 限流强化
 	config.RateLimit.Rate = 30
 	config.RateLimit.Burst = 60
-	config.RateLimit.UseRedisBackend = true
 
-	// 头部设置
+	// 强化HTTP头
 	config.Headers.HSTSPreload = true
-	config.Headers.ContentSecurityPolicy = "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+	config.Headers.ContentSecurityPolicy = "default-src 'self'; script-src 'self'; object-src 'none'; img-src 'self' data:; style-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'"
+	config.Headers.EnableCrossOriginPolicies = true
+	config.Headers.CrossOriginEmbedderPolicy = "require-corp"
+	config.Headers.CrossOriginOpenerPolicy = "same-origin"
+	config.Headers.CrossOriginResourcePolicy = "same-origin"
+	config.Headers.EnableCacheControl = true
+	config.Headers.CacheControl = "no-store, max-age=0"
 
-	// 认证设置
-	config.Auth.MaxLoginAttempts = 3
-	config.Auth.LockoutDuration = 30 * time.Minute
+	// 强化账户锁定策略
+	config.Auth.AccountLockout.MaxAttempts = 3
+	config.Auth.AccountLockout.LockoutDuration = 30 * time.Minute
 
-	// 密码设置
+	// 强化密码策略
 	config.Password.MinLength = 12
 	config.Password.RequireSpecialChars = true
 	config.Password.MaxAge = 60 * 24 * time.Hour
-	config.Password.PreventReuseCount = 5
+	config.Password.PreventReuseCount = 10
 
 	return config
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -235,72 +236,355 @@ func (m *Manager) InitSession(ctx *mist.Context) (Session, error) {
 	return sess, nil
 }
 
-// RefreshSession is a method that updates an existing session's expiry time to extend its life.
-// This is commonly referred to as "session refresh" or "session regeneration" and is a critical
-// security practice to prevent "session fixation" attacks. It is typically used in scenarios where
-// the application wants to ensure that the session remains valid, such as after a user performs
-// a sensitive action or after a fixed interval of time.
-//
-// The session is refreshed using the following process:
-//  1. Retrieve the current session associated with the request by calling the GetSession method.
-//     This uses the context and the mechanisms provided by the Propagator and Store interfaces
-//     to locate the session data.
-//  2. If an error is encountered during session retrieval, such as when the session does not exist
-//     or the session identifier is invalid, the error is immediately returned and the refresh
-//     operation is aborted.
-//  3. Assuming the session is retrieved successfully, the method proceeds to refresh the session's
-//     expiry time by calling the Refresh method of the Store interface. The Store interface's Refresh
-//     method is implemented by the session storage mechanism (e.g., a database) and is responsible for
-//     updating the session's expiry time within the storage backend.
-//  4. The Refresh method takes the session ID obtained from the retrieved session and the request context
-//     (to allow for timeout or cancelation) as parameters.
-//  5. An error is returned if the attempt to refresh the session fails; otherwise, nil is returned,
-//     indicating a successful refresh.
-//
-// It is important to design the underlying Store implementation to handle the refresh operation atomically
-// to avoid any race conditions or inconsistencies.
-//
-// The mist.Context is assumed to be a custom object that encapsulates the standard Go context and additional
-// information pertaining to the HTTP request cycle (for example, HTTP request and response accessor methods).
-//
-// Usage:
-// This method should be used when you need to prolong a user's session after some event or at regular intervals
-// during their interaction with the application. It is most commonly placed within middleware or wrapped within
-// handler functions that trigger the refresh logic.
-//
-// Here's an example of how to use RefreshSession within an HTTP handler function:
-//
-//	http.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
-//	    ctx := mist.NewContext(r, w)
-//	    err := sessionManager.RefreshSession(ctx)
-//	    if err != nil {
-//	        // Handle error (e.g., redirect to login page)
-//	    }
-//	    // Proceed with handling the request, knowing the session has been refreshed.
-//	})
-func (m *Manager) RefreshSession(ctx *mist.Context) error {
-	if ctx == nil {
-		return fmt.Errorf("nil context provided to RefreshSession")
+// SessionSecurityOptions 定义会话安全选项
+type SessionSecurityOptions struct {
+	// EnableSameSite 启用SameSite cookie策略
+	EnableSameSite bool
+	// SameSiteMode 设置SameSite模式 (None, Lax, Strict)
+	SameSiteMode http.SameSite
+	// SecureOnly 仅在HTTPS下使用
+	SecureOnly bool
+	// HttpOnly 阻止JavaScript访问cookie
+	HttpOnly bool
+	// EnableFingerprinting 启用会话指纹绑定
+	EnableFingerprinting bool
+	// RotateTokenOnValidation 每次认证成功后轮换会话令牌
+	RotateTokenOnValidation bool
+	// AbsoluteTimeout 会话绝对过期时间（无论活动与否）
+	AbsoluteTimeout time.Duration
+	// IdleTimeout 会话闲置超时时间
+	IdleTimeout time.Duration
+	// RenewTimeout 会话续期时间阈值
+	RenewTimeout time.Duration
+	// RequireReauthForSensitive 敏感操作需要重新验证
+	RequireReauthForSensitive bool
+	// ReauthTimeout 重新验证超时时间
+	ReauthTimeout time.Duration
+}
+
+// DefaultSessionSecurityOptions 返回默认的会话安全选项
+func DefaultSessionSecurityOptions() *SessionSecurityOptions {
+	return &SessionSecurityOptions{
+		EnableSameSite:            true,
+		SameSiteMode:              http.SameSiteLaxMode,
+		SecureOnly:                true,
+		HttpOnly:                  true,
+		EnableFingerprinting:      true,
+		RotateTokenOnValidation:   true,
+		AbsoluteTimeout:           24 * time.Hour,
+		IdleTimeout:               30 * time.Minute,
+		RenewTimeout:              5 * time.Minute,
+		RequireReauthForSensitive: true,
+		ReauthTimeout:             10 * time.Minute,
+	}
+}
+
+// SessionFingerprint 存储会话指纹信息
+type SessionFingerprint struct {
+	IP         string
+	UserAgent  string
+	CreatedAt  time.Time
+	LastSeenAt time.Time
+	LastAuthAt time.Time
+}
+
+// SetSecurityOptions 设置会话安全选项
+func (m *Manager) SetSecurityOptions(options *SessionSecurityOptions) {
+	// 如果是基于cookie的传播器，设置相关选项
+	if cp, ok := m.Propagator.(*cookie.CookiePropagator); ok {
+		if options.EnableSameSite {
+			cp.SetSameSite(options.SameSiteMode)
+		}
+		cp.SetSecure(options.SecureOnly)
+		cp.SetHTTPOnly(options.HttpOnly)
+		cp.SetMaxAge(int(options.AbsoluteTimeout.Seconds()))
+	}
+}
+
+// GenerateSessionFingerprint 生成会话指纹
+func GenerateSessionFingerprint(r *http.Request) *SessionFingerprint {
+	return &SessionFingerprint{
+		IP:         getClientIP(r),
+		UserAgent:  r.UserAgent(),
+		CreatedAt:  time.Now(),
+		LastSeenAt: time.Now(),
+		LastAuthAt: time.Now(),
+	}
+}
+
+// VerifySessionFingerprint 验证会话指纹
+func VerifySessionFingerprint(fp *SessionFingerprint, r *http.Request) bool {
+	if fp == nil {
+		return false
 	}
 
-	// Retrieve the existing session.
-	sess, err := m.GetSession(ctx)
+	// 验证IP和UserAgent是否匹配
+	// 注意：IP可能会变化，所以这个检查可以根据需要调整严格程度
+	currentIP := getClientIP(r)
+	currentUA := r.UserAgent()
+
+	// 简单的匹配，可以根据需要增加更复杂的逻辑
+	return fp.IP == currentIP && fp.UserAgent == currentUA
+}
+
+// UpdateSessionFingerprint 更新会话指纹
+func UpdateSessionFingerprint(fp *SessionFingerprint, r *http.Request) {
+	if fp == nil {
+		return
+	}
+	fp.LastSeenAt = time.Now()
+}
+
+// UpdateAuthTime 更新最后认证时间
+func UpdateAuthTime(fp *SessionFingerprint) {
+	if fp == nil {
+		return
+	}
+	fp.LastAuthAt = time.Now()
+}
+
+// NeedsReauthentication 检查是否需要重新认证
+func NeedsReauthentication(fp *SessionFingerprint, timeout time.Duration) bool {
+	if fp == nil {
+		return true
+	}
+
+	return time.Now().Sub(fp.LastAuthAt) > timeout
+}
+
+// CheckSessionExpired 检查会话是否过期
+func CheckSessionExpired(session Session, ctx context.Context, absoluteTimeout, idleTimeout time.Duration) bool {
+	if session == nil {
+		return true
+	}
+
+	// 获取会话创建和最后访问时间
+	createdTimeVal, _ := session.Get(ctx, "created_at")
+	lastSeenTimeVal, _ := session.Get(ctx, "last_seen_at")
+
+	now := time.Now()
+
+	// 检查绝对超时
+	if createdTimeVal != nil {
+		if created, ok := createdTimeVal.(time.Time); ok {
+			if now.Sub(created) > absoluteTimeout {
+				return true
+			}
+		}
+	}
+
+	// 检查闲置超时
+	if lastSeenTimeVal != nil {
+		if lastSeen, ok := lastSeenTimeVal.(time.Time); ok {
+			if now.Sub(lastSeen) > idleTimeout {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// getClientIP 从请求中获取客户端IP
+func getClientIP(r *http.Request) string {
+	// 尝试从X-Forwarded-For获取
+	ip := r.Header.Get("X-Forwarded-For")
+	if ip != "" {
+		// 可能有多个IP，取第一个
+		ips := strings.Split(ip, ",")
+		if len(ips) > 0 {
+			return strings.TrimSpace(ips[0])
+		}
+	}
+
+	// 尝试从X-Real-IP获取
+	ip = r.Header.Get("X-Real-IP")
+	if ip != "" {
+		return ip
+	}
+
+	// 从RemoteAddr获取
+	return strings.Split(r.RemoteAddr, ":")[0]
+}
+
+// RefreshSessionWithSecurity 使用安全选项刷新会话
+func (m *Manager) RefreshSessionWithSecurity(ctx *mist.Context, options *SessionSecurityOptions) error {
+	if options == nil {
+		options = DefaultSessionSecurityOptions()
+	}
+
+	session, err := m.GetSession(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get session for refresh: %w", err) // Return error if session retrieval fails.
+		return err
 	}
 
-	if sess == nil {
-		return fmt.Errorf("session is nil after retrieval")
-	}
-
-	// Refresh the session's expiry time in the store.
 	reqCtx := ctx.Request.Context()
 	if reqCtx == nil {
 		reqCtx = context.Background()
 	}
 
-	return m.Refresh(reqCtx, sess.ID())
-	// Any error during refresh is returned to the caller.
+	// 如果启用指纹验证，验证会话指纹
+	if options.EnableFingerprinting {
+		fpData, _ := session.Get(reqCtx, "fingerprint")
+		if fpData != nil {
+			fp, ok := fpData.(*SessionFingerprint)
+			if ok {
+				// 验证指纹
+				if !VerifySessionFingerprint(fp, ctx.Request) {
+					return fmt.Errorf("会话指纹验证失败，可能存在会话劫持")
+				}
+				// 更新指纹的最后访问时间
+				UpdateSessionFingerprint(fp, ctx.Request)
+				session.Set(reqCtx, "fingerprint", fp)
+			}
+		}
+	}
+
+	// 检查会话是否过期
+	if CheckSessionExpired(session, reqCtx, options.AbsoluteTimeout, options.IdleTimeout) {
+		return fmt.Errorf("会话已过期")
+	}
+
+	// 更新最后访问时间
+	session.Set(reqCtx, "last_seen_at", time.Now())
+
+	// 如果启用会话令牌轮换，则生成新的会话ID
+	if options.RotateTokenOnValidation {
+		newID := uuid.New().String()
+		oldID := session.ID()
+
+		// 创建会话副本，使用新ID
+		newSession, err := m.Generate(reqCtx, newID)
+		if err != nil {
+			return err
+		}
+
+		// 复制会话数据
+		keys := []string{"created_at", "last_seen_at", "fingerprint"}
+		for _, key := range keys {
+			val, err := session.Get(reqCtx, key)
+			if err == nil && val != nil {
+				newSession.Set(reqCtx, key, val)
+			}
+		}
+
+		// 将新ID注入响应
+		if err := m.Propagator.Inject(newID, ctx.ResponseWriter); err != nil {
+			return err
+		}
+
+		// 保存新会话
+		if err := newSession.Save(); err != nil {
+			return err
+		}
+
+		// 删除旧会话
+		m.Store.Remove(reqCtx, oldID)
+
+		// 更新当前会话引用
+		if ctx.UserValues == nil {
+			ctx.UserValues = make(map[string]any, 1)
+		}
+		ctx.UserValues[m.CtxSessionKey] = newSession
+	} else {
+		// 保存更新后的会话
+		if err := session.Save(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// InitSessionWithSecurity 使用安全选项初始化会话
+func (m *Manager) InitSessionWithSecurity(ctx *mist.Context, options *SessionSecurityOptions) (Session, error) {
+	if options == nil {
+		options = DefaultSessionSecurityOptions()
+	}
+
+	// 生成会话ID
+	sessId := uuid.New().String()
+
+	// 从请求上下文获取上下文
+	reqCtx := ctx.Request.Context()
+	if reqCtx == nil {
+		reqCtx = context.Background()
+	}
+
+	// 生成新会话
+	session, err := m.Store.Generate(reqCtx, sessId)
+	if err != nil {
+		return nil, err
+	}
+
+	// 设置会话基本信息
+	session.Set(reqCtx, "created_at", time.Now())
+	session.Set(reqCtx, "last_seen_at", time.Now())
+
+	// 如果启用指纹验证，生成并保存指纹
+	if options.EnableFingerprinting {
+		fp := GenerateSessionFingerprint(ctx.Request)
+		session.Set(reqCtx, "fingerprint", fp)
+	}
+
+	// 配置会话传播器
+	if cp, ok := m.Propagator.(*cookie.CookiePropagator); ok {
+		if options.EnableSameSite {
+			cp.SetSameSite(options.SameSiteMode)
+		}
+		cp.SetSecure(options.SecureOnly)
+		cp.SetHTTPOnly(options.HttpOnly)
+		cp.SetMaxAge(int(options.AbsoluteTimeout.Seconds()))
+	}
+
+	// 注入会话ID到响应
+	if err := m.Propagator.Inject(sessId, ctx.ResponseWriter); err != nil {
+		return nil, err
+	}
+
+	// 保存会话
+	if err := session.Save(); err != nil {
+		return nil, err
+	}
+
+	// 缓存会话
+	if ctx.UserValues == nil {
+		ctx.UserValues = make(map[string]any, 1)
+	}
+	ctx.UserValues[m.CtxSessionKey] = session
+
+	return session, nil
+}
+
+// RequireReauthForSensitiveOperation 检查并要求重新认证敏感操作
+func (m *Manager) RequireReauthForSensitiveOperation(ctx *mist.Context, options *SessionSecurityOptions) (bool, error) {
+	if options == nil {
+		options = DefaultSessionSecurityOptions()
+	}
+
+	session, err := m.GetSession(ctx)
+	if err != nil {
+		return true, err
+	}
+
+	reqCtx := ctx.Request.Context()
+	if reqCtx == nil {
+		reqCtx = context.Background()
+	}
+
+	// 获取会话指纹
+	fpData, _ := session.Get(reqCtx, "fingerprint")
+	if fpData == nil {
+		return true, fmt.Errorf("会话缺少指纹信息")
+	}
+
+	fp, ok := fpData.(*SessionFingerprint)
+	if !ok {
+		return true, fmt.Errorf("会话指纹格式无效")
+	}
+
+	// 检查是否需要重新认证
+	return NeedsReauthentication(fp, options.ReauthTimeout), nil
 }
 
 // RemoveSession is a method designed to delete a user's session from the session store

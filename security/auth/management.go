@@ -1,15 +1,18 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"github.com/dormoron/mist"
-	"github.com/dormoron/mist/security/auth/kit"
-	"github.com/golang-jwt/jwt/v5"
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/dormoron/mist"
+	"github.com/dormoron/mist/security/auth/kit"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // bearerPrefix defines the prefix to be used for Bearer tokens.
@@ -313,4 +316,192 @@ func (m *Management[T]) VerifyRefreshToken(token string, opts ...jwt.ParserOptio
 // - claims: The claims to set into the context (RegisteredClaims[T]).
 func (m *Management[T]) SetClaims(ctx *mist.Context, claims RegisteredClaims[T]) {
 	ctx.Set("claims", claims) // Set the claims into the context.
+}
+
+// LockoutPolicy 定义账户锁定策略
+type LockoutPolicy struct {
+	// MaxAttempts 允许的最大失败尝试次数
+	MaxAttempts int
+	// LockoutDuration 锁定持续时间
+	LockoutDuration time.Duration
+	// ResetDuration 失败尝试记录重置时间
+	ResetDuration time.Duration
+	// IncludeIPInKey 是否在锁定键中包含IP地址
+	IncludeIPInKey bool
+}
+
+// DefaultLockoutPolicy 返回默认的账户锁定策略
+func DefaultLockoutPolicy() *LockoutPolicy {
+	return &LockoutPolicy{
+		MaxAttempts:     5,
+		LockoutDuration: 15 * time.Minute,
+		ResetDuration:   24 * time.Hour,
+		IncludeIPInKey:  true,
+	}
+}
+
+// AccountLockout 管理账户锁定状态
+type AccountLockout struct {
+	policy *LockoutPolicy
+	// attempts 存储用户ID与失败尝试次数的映射
+	attempts map[string]struct {
+		count       int
+		lastAttempt time.Time
+		lockedUntil time.Time
+	}
+	mutex sync.RWMutex
+}
+
+// NewAccountLockout 创建一个新的账户锁定管理器
+func NewAccountLockout(policy *LockoutPolicy) *AccountLockout {
+	if policy == nil {
+		policy = DefaultLockoutPolicy()
+	}
+	return &AccountLockout{
+		policy: policy,
+		attempts: make(map[string]struct {
+			count       int
+			lastAttempt time.Time
+			lockedUntil time.Time
+		}),
+	}
+}
+
+// GetLockoutKey 生成锁定键
+func (al *AccountLockout) GetLockoutKey(userID, ip string) string {
+	if al.policy.IncludeIPInKey {
+		return fmt.Sprintf("%s:%s", userID, ip)
+	}
+	return userID
+}
+
+// RecordFailedAttempt 记录失败的登录尝试
+func (al *AccountLockout) RecordFailedAttempt(userID, ip string) bool {
+	key := al.GetLockoutKey(userID, ip)
+
+	al.mutex.Lock()
+	defer al.mutex.Unlock()
+
+	now := time.Now()
+
+	// 获取当前尝试记录
+	attempt, exists := al.attempts[key]
+
+	// 如果存在记录并且超过重置时间，重置记录
+	if exists && now.Sub(attempt.lastAttempt) > al.policy.ResetDuration {
+		delete(al.attempts, key)
+		exists = false
+	}
+
+	// 如果是新记录，初始化
+	if !exists {
+		al.attempts[key] = struct {
+			count       int
+			lastAttempt time.Time
+			lockedUntil time.Time
+		}{
+			count:       1,
+			lastAttempt: now,
+		}
+		return false
+	}
+
+	// 检查是否已被锁定
+	if !attempt.lockedUntil.IsZero() && now.Before(attempt.lockedUntil) {
+		// 更新最后尝试时间但不增加计数器
+		attempt.lastAttempt = now
+		al.attempts[key] = attempt
+		return true
+	}
+
+	// 增加失败计数
+	attempt.count++
+	attempt.lastAttempt = now
+
+	// 如果超过最大尝试次数，锁定账户
+	if attempt.count >= al.policy.MaxAttempts {
+		attempt.lockedUntil = now.Add(al.policy.LockoutDuration)
+	}
+
+	al.attempts[key] = attempt
+	return attempt.count >= al.policy.MaxAttempts
+}
+
+// IsLocked 检查账户是否被锁定
+func (al *AccountLockout) IsLocked(userID, ip string) (bool, time.Time) {
+	key := al.GetLockoutKey(userID, ip)
+
+	al.mutex.RLock()
+	defer al.mutex.RUnlock()
+
+	attempt, exists := al.attempts[key]
+	if !exists {
+		return false, time.Time{}
+	}
+
+	// 如果锁定已经过期，返回未锁定
+	now := time.Now()
+	if !attempt.lockedUntil.IsZero() && now.After(attempt.lockedUntil) {
+		return false, time.Time{}
+	}
+
+	return !attempt.lockedUntil.IsZero(), attempt.lockedUntil
+}
+
+// ResetLockout 重置指定账户的锁定状态
+func (al *AccountLockout) ResetLockout(userID, ip string) {
+	key := al.GetLockoutKey(userID, ip)
+
+	al.mutex.Lock()
+	defer al.mutex.Unlock()
+
+	delete(al.attempts, key)
+}
+
+// ResetAllLockouts 重置所有锁定状态
+func (al *AccountLockout) ResetAllLockouts() {
+	al.mutex.Lock()
+	defer al.mutex.Unlock()
+
+	al.attempts = make(map[string]struct {
+		count       int
+		lastAttempt time.Time
+		lockedUntil time.Time
+	})
+}
+
+// CleanupExpiredLockouts 清理过期的锁定记录
+func (al *AccountLockout) CleanupExpiredLockouts() {
+	al.mutex.Lock()
+	defer al.mutex.Unlock()
+
+	now := time.Now()
+
+	for key, attempt := range al.attempts {
+		// 清理已过期的锁定记录
+		if !attempt.lockedUntil.IsZero() && now.After(attempt.lockedUntil) {
+			delete(al.attempts, key)
+			continue
+		}
+
+		// 清理过期的失败记录
+		if now.Sub(attempt.lastAttempt) > al.policy.ResetDuration {
+			delete(al.attempts, key)
+		}
+	}
+}
+
+// RunLockoutCleanup 定期运行清理过期的锁定记录
+func (al *AccountLockout) RunLockoutCleanup(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			al.CleanupExpiredLockouts()
+		case <-ctx.Done():
+			return
+		}
+	}
 }

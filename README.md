@@ -277,3 +277,44 @@ Mist框架使用MIT许可证 - 详情请参阅[LICENSE](LICENSE)文件。
 
 Mist Framework - 为高性能Go Web应用而生
 
+## 安全优化
+
+本项目最近进行了全面的安全增强，包括以下方面：
+
+### 1. 账户锁定策略
+
+为防止暴力破解攻击，增加了账户锁定机制：
+
+- 可配置最大失败尝试次数
+- 自动锁定时间设置
+- 基于用户ID和IP的锁定策略
+- 定期清理过期锁定记录
+
+### 2. 会话安全增强
+
+改进了会话管理安全性：
+
+- 支持会话指纹绑定（检测会话劫持）
+- 自动会话令牌轮换
+- 多级超时策略（绝对超时和闲置超时）
+- 敏感操作的重新认证要求
+
+### 3. 安全HTTP头
+
+实现了全面的安全HTTP头设置：
+
+- Content-Security-Policy (CSP)
+- Strict-Transport-Security (HSTS)
+- X-Frame-Options
+- X-Content-Type-Options
+- X-XSS-Protection
+- Referrer-Policy
+- Permissions-Policy
+- Cross-Origin 相关策略
+
+### 4. 其他安全特性
+
+- 密码强度检测和历史记录检查
+- 自动检测和设置正确的Content-Type
+- 移除泄露服务器信息的HTTP头
+
