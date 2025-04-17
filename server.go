@@ -3,7 +3,6 @@ package mist
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
 	"net"
 	"net/http"
 	"time"
@@ -511,31 +510,28 @@ func (s *HTTPServer) StartTLS(addr, certFile, keyFile string) error {
 
 // StartHTTP3 启动支持HTTP/3的服务器
 func (s *HTTPServer) StartHTTP3(addr, certFile, keyFile string) error {
-	// 目前直接返回错误，需要引入第三方HTTP/3实现
-	return fmt.Errorf("HTTP/3 support requires quic-go package, please update your imports")
-
-	// 实际实现需要引入第三方包如quic-go
-	/*
-		// 配置QUIC传输
-		quicTransport := &http3.Server{
-			Server: s.httpServer,
-			QuicConfig: &quic.Config{
-				MaxIncomingStreams: s.ServerConfig.QuicMaxIncomingStreams,
-				MaxIdleTimeout:     s.ServerConfig.HTTP3IdleTimeout,
-			},
+	// 确保初始化HTTP服务器
+	if s.httpServer == nil {
+		s.httpServer = &http.Server{
+			Handler: s,
 		}
+	}
 
-		// 启动HTTP/3服务器
-		go func() {
-			err := quicTransport.ListenAndServeTLS(certFile, keyFile)
-			if err != nil {
-				s.log.Error("HTTP/3服务器启动失败: %v", err)
-			}
-		}()
+	// 创建配置
+	config := DefaultHTTP3Config()
 
-		// 同时启动HTTP/2作为回退选项
-		return s.StartTLS(addr, certFile, keyFile)
-	*/
+	// 创建HTTP/3服务器
+	h3Server := NewHTTP3Server(s.httpServer, config, s.log)
+
+	// 同时启动HTTP/2作为回退选项
+	go func() {
+		if err := s.StartTLS(addr, certFile, keyFile); err != nil {
+			s.log.Error("启动TLS服务器失败: %v", err)
+		}
+	}()
+
+	// 启动HTTP/3服务器
+	return h3Server.ListenAndServeTLS(addr, certFile, keyFile)
 }
 
 // Shutdown 优雅关闭服务器，等待现有请求完成

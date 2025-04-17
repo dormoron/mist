@@ -3,7 +3,6 @@ package mist
 import (
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/dormoron/mist/internal/errs"
@@ -26,95 +25,84 @@ type routeStats struct {
 	lastResponseCode int           // 最后响应码
 }
 
-// router is a data structure that is used to store and retrieve the routing information
-// of a web server or similar application which requires URL path segmentation and pattern matching.
-// This struct is at the core of the routing mechanism and is responsible for associating
-// URL paths with their corresponding handlers.
+// router 是一个数据结构，用于存储和检索Web服务器或类似应用程序的路由信息，
+// 这些应用程序需要URL路径分段和模式匹配。
+// 此结构是路由机制的核心，负责将URL路径与其对应的处理程序关联起来。
 //
-// The 'router' struct consists of a map called 'trees', where the keys are HTTP methods
-// like "GET", "POST", "PUT", etc. For each HTTP method, there is an associated 'node' which
-// is the root of a tree data structure. This tree is used to store the routes in a hierarchical
-// manner, where each part of the URL path is represented as a node within the tree.
+// 'router'结构包含一个名为'trees'的map，其中键是HTTP方法，
+// 如"GET"，"POST"，"PUT"等。对于每个HTTP方法，都有一个关联的'node'，
+// 它是树形数据结构的根。这棵树用于以层次方式存储路由，
+// 其中URL路径的每个部分都表示为树中的一个节点。
 //
-// By breaking down the URL paths into segments and structuring them in a tree fashion, the 'router'
-// struct allows for quick and efficient matching of URL paths to their respective handlers,
-// even as the number of routes grows large. This organization provides an improvement over linear
-// search methods, reducing the routing complexity from O(n) to O(k), where k is the number of path
-// segments in the URL.
+// 通过将URL路径分解为段并以树形结构组织它们，'router'
+// 结构允许快速高效地将URL路径与它们各自的处理程序匹配，
+// 即使随着路由数量的增长。这种组织方式改进了线性
+// 搜索方法，将路由复杂度从O(n)降低到O(k)，其中k是URL中的路径段数。
 //
-// The 'trees' map is therefore a critical component to efficiently handle HTTP requests matching
-// and dispatching, supporting dynamic URL patterns and increasing the performance and scalability
-// of the application.
+// 因此，'trees' map是高效处理HTTP请求匹配和调度的关键组件，
+// 支持动态URL模式并提高应用程序的性能和可扩展性。
 //
-// Example of 'router' usage:
-// - Creating new router instance:
+// 'router'使用示例:
+// - 创建新的router实例:
 //
 //	r := &router{
 //	    trees: make(map[string]*node),
 //	}
 //
-// - Adding routes to router:
+// - 向router添加路由:
 //
 //	r.addRoute("GET", "/home", homeHandler)
 //	r.addRoute("POST", "/users", usersHandler)
 //	...
 //
-// - Using the router to match a request's method and path to the appropriate handler:
+// - 使用router将请求的方法和路径匹配到适当的处理程序:
 //
 //	handler, params := r.match("GET", "/home")
 //	if handler != nil {
 //	  handler.ServeHTTP(w, r)
 //	}
 //
-// Considerations:
-//   - For maximal efficiency, the trees should only be modified during the initialization phase
-//     of the application, or at times when no requests are being handled, as modifications to the
-//     tree structure could otherwise lead to race conditions or inconsistent routing.
-//   - Expansion of dynamic route parameters (like '/users/:userID') is supported by most routing trees,
-//     this should be taken into account when designing the node and its matching algorithm.
-//   - Error handling such as detecting duplicate routes, invalid patterns, or unsupported HTTP methods,
-//     should be considered and implemented according to the needs of the application.
+// 注意事项:
+//   - 为了最大效率，trees应该只在应用程序的初始化阶段或在没有请求处理时进行修改，
+//     因为对树结构的修改可能会导致竞争条件或不一致的路由。
+//   - 大多数路由树支持动态路由参数的扩展(如'/users/:userID')，
+//     在设计节点及其匹配算法时应考虑到这一点。
+//   - 错误处理，如检测重复路由、无效模式或不支持的HTTP方法，
+//     应根据应用程序的需要考虑和实现。
 type router struct {
 	trees map[string]*node
 
-	// 路由缓存相关字段
-	routeCache   sync.Map // 使用sync.Map替代map+互斥锁
-	maxCacheSize int
-	cacheHits    uint64
-	cacheMisses  uint64
+	// 自适应路由缓存
+	routeCache   *AdaptiveCache // 使用自适应缓存替代原有的sync.Map
 	cacheEnabled bool
 
-	// routeStatsMu protects concurrent access to routeStats
+	// 路由统计
 	routeStatsMu sync.RWMutex
-
-	// routeStats tracks performance statistics for each route
-	routeStats map[string]*routeStats
-
-	// enableStats indicates whether route statistics are enabled
-	enableStats bool
+	routeStats   map[string]*routeStats
+	enableStats  bool
 }
 
-// initRouter is a factory function that initializes and returns a new instance of the 'router' struct.
-// This function prepares the 'router' for use by setting up its internal data structures, which are necessary
-// for registering and matching URL routes to their associated handlers within a web application.
+// initRouter 是一个工厂函数，初始化并返回'router'结构的新实例。
+// 此函数通过设置其内部数据结构为路由器的使用做准备，这些数据结构对于
+// 在Web应用程序中注册和匹配URL路由到其关联的处理程序是必要的。
 //
-// When called, it constructs a 'router' instance with an initialized 'trees' map, which is essential for
-// storing the root nodes of route trees for different HTTP methods. The 'trees' map is keyed on HTTP methods
-// as strings, such as "GET", "POST", "PUT", etc., and the values are pointers to 'node' struct instances
-// that represent the root of a tree for that HTTP method.
+// 当被调用时，它构造一个带有初始化的'trees' map的'router'实例，这对于
+// 存储不同HTTP方法的路由树的根节点至关重要。'trees' map以HTTP方法
+// 作为字符串键，如"GET", "POST", "PUT"等，而值是指向'node'结构实例的指针，
+// 这些实例代表该HTTP方法的树的根。
 //
-// Since the routing logic requires a distinct tree for each HTTP method to allow for efficient route matching
-// and to accommodate the unique paths that may exist under each method, the 'trees' map is initialized as empty
-// with no root nodes. Roots are typically added as new routes are registered to the router via a separate
-// function or method, not shown in this example.
+// 由于路由逻辑需要为每个HTTP方法设置一个不同的树，以允许高效的路由匹配
+// 并适应每种方法下可能存在的唯一路径，'trees' map初始化为空，
+// 没有根节点。根节点通常是在通过单独的函数或方法向路由器注册新路由时添加的，
+// 示例中未显示。
 //
-// Usage of the 'initRouter' function is typically seen during the setup phase of a web server or application,
-// where routing is being established before starting to serve requests. The returned 'router' instance is
-// then ready to have routes added to it and subsequently used to route incoming HTTP requests to the correct
-// handler based on the path and method.
+// 'initRouter'函数的使用通常在Web服务器或应用程序的设置阶段，
+// 在开始服务请求之前建立路由。返回的'router'实例
+// 准备好添加路由，随后用于根据路径和方法将传入的HTTP请求路由到正确的
+// 处理程序。
 //
-// Example of usage:
-// - Initializing a new router instance at application startup
+// 使用示例:
+// - 在应用程序启动时初始化新的路由器实例
 //
 //		r := initRouter()
 //		r.addRoute("GET", "/", homeHandler)
@@ -122,21 +110,31 @@ type router struct {
 //		...
 //		http.ListenAndServe(":8080", r)
 //
-//	  - The application's main or setup function would typically include a call to 'initRouter' followed by route
-//	    registration code and eventually starting the server with the router configured.
+//	  - 应用程序的主函数或设置函数通常包括对'initRouter'的调用，然后是路由
+//	    注册代码，最终启动配置好的服务器。
 //
-// Considerations:
-//   - It's important that this initialization is done before the router begins handling any requests to ensure
-//     thread safety. If the application is expected to modify the router after serving requests has started,
-//     proper synchronization mechanisms should be employed.
-//   - The 'initRouter' function abstracts the initialization details and ensures that all required invariants
-//     of the 'router' struct are satisfied, improving code readability and safety by centralizing router setup logic.
+// 注意事项:
+//   - 重要的是，在路由器开始处理任何请求之前完成此初始化，以确保
+//     线程安全。如果应用程序在开始服务请求后需要修改路由器，
+//     应该采用适当的同步机制。
+//   - 'initRouter'函数抽象了初始化细节，确保满足'router'结构的所有必需不变量，
+//     通过集中路由器设置逻辑改进了代码可读性和安全性。
 func initRouter() router {
+	// 创建自适应缓存配置
+	cacheConfig := AdaptiveCacheConfig{
+		MaxSize:            10000,
+		CleanupInterval:    5 * time.Minute,
+		MinAccessCount:     5,
+		AccessTimeWeight:   0.3,
+		FrequencyWeight:    0.5,
+		ResponseTimeWeight: 0.2,
+		AdaptiveMode:       true,
+	}
+
 	return router{
 		trees:        map[string]*node{},
-		routeCache:   sync.Map{},
-		maxCacheSize: 10000, // 默认缓存大小
-		cacheEnabled: true,  // 默认启用缓存
+		routeCache:   NewAdaptiveCache(cacheConfig),
+		cacheEnabled: true,
 		routeStats:   make(map[string]*routeStats),
 		enableStats:  false,
 	}
@@ -145,89 +143,99 @@ func initRouter() router {
 // EnableCache 启用路由缓存
 func (r *router) EnableCache(maxSize int) {
 	r.cacheEnabled = true
-	if maxSize > 0 {
-		r.maxCacheSize = maxSize
+
+	// 创建新配置
+	cacheConfig := AdaptiveCacheConfig{
+		MaxSize:            int64(maxSize),
+		CleanupInterval:    5 * time.Minute,
+		MinAccessCount:     5,
+		AccessTimeWeight:   0.3,
+		FrequencyWeight:    0.5,
+		ResponseTimeWeight: 0.2,
+		AdaptiveMode:       true,
 	}
+
+	// 如果旧缓存存在，关闭它
+	if r.routeCache != nil {
+		r.routeCache.Close()
+	}
+
+	r.routeCache = NewAdaptiveCache(cacheConfig)
 }
 
 // DisableCache 禁用路由缓存
 func (r *router) DisableCache() {
 	r.cacheEnabled = false
-	r.clearCache()
+	if r.routeCache != nil {
+		r.routeCache.Disable()
+	}
 }
 
 // CacheStats 返回缓存统计信息
 func (r *router) CacheStats() (hits, misses uint64, size int) {
-	hits = atomic.LoadUint64(&r.cacheHits)
-	misses = atomic.LoadUint64(&r.cacheMisses)
+	if r.routeCache == nil {
+		return 0, 0, 0
+	}
 
-	// 计算当前缓存大小
-	size = 0
-	r.routeCache.Range(func(_, _ interface{}) bool {
-		size++
-		return true
-	})
-
-	return
+	hits, misses, _, size64, _ := r.routeCache.Stats()
+	return hits, misses, int(size64)
 }
 
-// Group creates and returns a new routerGroup attached to the router it is called on.
-// The method ensures the provided prefix conforms to format requirements by checking
-// if it starts and does not end with a forward slash, unless it is the root group ("/").
-// This method panics if the prefix is invalid to prevent router misconfiguration.
+// Group 创建并返回一个附加到被调用路由器上的新routerGroup。
+// 该方法通过检查前缀是否以正斜杠开始且不以正斜杠结束（除非是根组"/"）来确保提供的前缀符合格式要求。
+// 如果前缀无效，此方法会panic，以防止路由器配置错误。
 //
-// Parameters:
-//   - prefix: The path prefix for the new group of routes. It should start with a forward slash and,
-//     except for the root group, not end with a forward slash.
-//   - ms: Zero or more Middleware functions that will be applied to every route
-//     within the created routerGroup.
+// 参数:
+//   - prefix: 新路由组的路径前缀。它应该以正斜杠开始，
+//     除了根组外，不应以正斜杠结束。
+//   - ms: 零个或多个中间件函数，这些函数将应用于创建的routerGroup内的每个路由。
 //
-// Returns:
-// *routerGroup: A pointer to the newly created routerGroup with the given prefix and middlewares.
+// 返回:
+// *routerGroup: 指向新创建的routerGroup的指针，带有给定的前缀和中间件。
 //
-// Panics:
-// This method will panic if 'prefix' does not start with a '/' or if 'prefix' ends with a '/'
-// (except when 'prefix' is exactly "/").
+// Panic:
+// 如果'prefix'不以'/'开始，或者如果'prefix'以'/'结束
+// (除非'prefix'恰好是"/")，此方法将会panic。
 //
-// Usage:
-// r := &router{} // Assume router is already initialized
+// 使用示例:
+// r := &router{} // 假设路由器已初始化
 // group := r.Group("/api", loggingMiddleware, authMiddleware)
 func (r *router) Group(prefix string, ms ...Middleware) *routerGroup {
-	// Check if the prefix is empty or doesn't start with a '/'
+	// 检查前缀是否为空或不以'/'开始
 	if prefix == "" || prefix[0] != '/' {
-		panic(errs.ErrRouterGroupFront()) // Panic with a predefined error for incorrect prefix start
+		panic(errs.ErrRouterGroupFront()) // 使用预定义的错误panic，表示前缀起始不正确
 	}
-	// Check if the prefix is not the root '/' and ends with a '/'
+	// 检查前缀是否不是根'/'并以'/'结束
 	if prefix != "/" && prefix[len(prefix)-1] == '/' {
-		panic(errs.ErrRouterGroupBack()) // Panic with a predefined error for incorrect prefix end
+		panic(errs.ErrRouterGroupBack()) // 使用预定义的错误panic，表示前缀结束不正确
 	}
-	// If the prefix is correct, initialize a new routerGroup with the provided details and return it
+	// 如果前缀正确，初始化一个新的routerGroup并使用提供的详细信息返回
 	return &routerGroup{prefix: prefix, router: r, middles: ms}
 }
 
-// registerRoute registers a new route with its handler and middleware in the router's routing tree. It
-// validates the path format, ensures it's properly structured, and may panic if there's a conflict.
+// registerRoute 在路由器的路由树中注册一个带有处理程序和中间件的新路由。它
+// 验证路径格式，确保结构正确，如果有冲突可能会panic。
 //
-// This method is called by the various HTTP method-specific functions like GET, POST, and is
-// internally used to set up routes with their respective handlers and middleware.
+// 此方法由各种HTTP方法特定的函数（如GET、POST）调用，并在
+// 内部用于设置路由及其各自的处理程序和中间件。
 //
-// Parameters:
-//   - method: The HTTP method (e.g., GET, POST, PUT, etc.) that the route should respond to.
-//   - path: The URL pattern to match against incoming requests. It can include parameters marked
-//     with a colon ':' (e.g., '/users/:id') or wildcards '*'.
-//   - handleFunc: The function to be called when the route is matched. This function handles the
-//     HTTP request and generates a response. It can be nil if you're only attaching middleware.
-//   - mils: A variadic parameter of Middleware functions to be applied to the route. These are
-//     executed in the order they are provided, before the main handler function.
+// 参数:
+//   - method: 路由应响应的HTTP方法（例如，GET、POST、PUT等）。
+//   - path: 匹配传入请求的URL模式。它可以包括用冒号':'标记的参数
+//     （例如，'/users/:id'）或通配符'*'。
+//   - handleFunc: 当路由匹配时要调用的函数。此函数处理
+//     HTTP请求并生成响应。如果你只是附加中间件，它可以为nil。
+//   - mils: 一个可变参数的中间件函数，应用于路由。这些函数
+//     按照提供的顺序执行，在主处理函数之前。
 //
-// This function internally:
-//   - Validates the path starts with a '/' and doesn't contain unnecessary trailing slashes.
-//   - Adds the route and its handler to the router's internal routing tree.
-//   - Associates the provided middleware with the route.
+// 此函数内部:
+//   - 验证路径以'/'开始且不包含不必要的尾部斜杠。
+//   - 将路由及其处理程序添加到路由器的内部路由树中。
+//   - 将提供的中间件与路由关联。
 //
-// Note:
-// If you want to add middleware to all routes under a certain path, consider using the Group
-// functionality or the Use method instead.
+// 注意:
+// 如果你想为某个路径下的所有路由添加中间件，考虑使用Group
+// 功能或Use方法。
 func (r *router) registerRoute(method string, path string, handler HandleFunc, ms ...Middleware) {
 	if path == "" {
 		panic(errs.ErrRouterNotString())
@@ -292,163 +300,83 @@ func (r *router) registerRoute(method string, path string, handler HandleFunc, m
 	root.mils = ms
 }
 
-// appendCollectMiddlewares traverses up the tree from the given node to the root and collects all
-// middleware in the order from the root to the node. This function is typically used to gather all
-// middleware that should be applied to a request, as it travels from the root node down to a specific route.
+// appendCollectMiddlewares 从给定节点向上遍历到根节点，收集所有
+// 中间件，顺序从根到节点。此函数通常用于收集应用于
+// 请求的所有中间件，当请求从根节点向下到特定路由时。
 //
-// Parameters:
-//   - n: A pointer to the starting node from where to begin collecting middleware. This usually represents
-//     a node matched by a specific route.
-//   - ms: A slice of Middleware that may already contain some middleware. Additional middleware from the
-//     nodes will be prepended to this slice.
+// 参数:
+//   - n: 指向开始收集中间件的起始节点的指针。这通常代表
+//     由特定路由匹配的节点。
+//   - ms: 一个可能已经包含一些中间件的Middleware切片。来自节点的额外中间件将
+//     被前置到这个切片中。
 //
-// Returns:
-//   - []Middleware: A slice of Middleware that includes the provided middleware and all middleware gathered
-//     from traversing the tree up to the root node.
+// 返回:
+//   - []Middleware: 一个包含提供的中间件和从遍历树到根节点
+//     收集的所有中间件的Middleware切片。
 func appendCollectMiddlewares(n *node, ms []Middleware) []Middleware {
-	// Initialize a local slice starting with the passed-in middleware.
-	// This will allow middleware to be collected in the correct order.
-	middles := ms // The slice that will ultimately contain the collected middleware.
+	// 初始化一个本地切片，从传入的中间件开始。
+	// 这将允许按正确顺序收集中间件。
+	middles := ms // 最终将包含收集的中间件的切片。
 
-	// Iterate up the tree starting from the given node until the root is reached.
+	// 从给定节点开始向上迭代，直到到达根节点。
 	for n != nil {
-		// Prepend the middleware of the current node to the 'middles' slice.
-		// Prepending ensures that the middleware is in the correct order when applying it later: from root down to the node.
+		// 将当前节点的中间件前置到'middles'切片中。
+		// 前置确保了中间件在以后应用时的正确顺序：从根向下到节点。
 		middles = append(n.mils, middles...)
-		// Climb up to the parent node for the next iteration.
+		// 向上爬到父节点进行下一次迭代。
 		n = n.parent
 	}
-	// Return the collected middleware in the tree from the root to the given node.
+	// 返回从根到给定节点的树中收集的中间件。
 	return middles
 }
 
-// findRoute searches the router's trees to find a route that matches the specified HTTP method and path.
-// It traverses the tree according to the path segments, collecting matching nodes and associated middleware.
-// If a matching route is found, it creates a `matchInfo` struct detailing the matched node and middleware.
-// This is commonly used in web frameworks to resolve incoming requests to their appropriate handlers.
-//
-// Parameters:
-// - method: A string representing the HTTP method to match (GET, POST, etc.).
-// - path: A string representing the request path that needs to be matched to a route.
-//
-// Returns:
-// - *matchInfo: A pointer to a `matchInfo` struct representing the matched route info, if a route is found.
-// - bool: A boolean indicator that is true if a route is found, false otherwise.
+// findRoute 查找匹配的路由
 func (r *router) findRoute(method string, path string) (*matchInfo, bool) {
-	// 检查路由缓存
-	if r.cacheEnabled {
-		if mi, ok := r.findRouteFromCache(method, path); ok {
-			return mi, true
-		}
+	startTime := time.Now()
+
+	// 首先尝试从缓存获取
+	mi, found := r.findRouteFromCache(method, path)
+	if found {
+		// 命中缓存
+		return mi, true
 	}
 
-	// Attempt to retrieve the root node for the HTTP method from the router's trees.
+	// 缓存未命中，执行正常路由查找
 	root, ok := r.trees[method]
-	// If the method does not have a corresponding tree, return no match.
 	if !ok {
 		return nil, false
 	}
 
-	// Special case for root path "/".
+	// 先尝试快速匹配（静态路由）
 	if path == "/" {
-		mi := &matchInfo{n: root, mils: root.mils}
-		// 添加到缓存
-		r.addToCache(method, path, mi)
-		// Return the root node's information with associated middleware, indicating a match is found.
-		return mi, true
+		return &matchInfo{
+			n:          root,
+			pathParams: nil,
+			mils:       collectMiddlewares(root),
+		}, true
 	}
 
-	// 优化：直接使用二级缓存进行静态路径快速匹配
-	if child, found := r.tryFastMatch(root, path); found {
-		mi := &matchInfo{n: child, mils: r.findMils(root, strings.Split(strings.Trim(path, "/"), "/"))}
-		// 添加到缓存
-		r.addToCache(method, path, mi)
-		return mi, true
-	}
-
-	// Split the path into segments for traversal, ignoring any trailing slashes.
+	// 执行常规匹配过程
 	segs := strings.Split(strings.Trim(path, "/"), "/")
+	mi = &matchInfo{}
+	mi.pathParams = make(map[string]string)
 
-	// Initialize matchInfo to store the matching route's info as we traverse.
-	mi := &matchInfo{
-		pathParams: make(map[string]string),
+	// 使用递归查找匹配的节点
+	n, found := r.matchNode(root, segs, mi.pathParams, 0)
+	if !found {
+		return nil, false
 	}
 
-	// Start from the root node.
-	cur := root
+	mi.n = n
+	mi.mils = collectMiddlewares(n)
 
-	// Loop through the path segments to traverse the routing tree.
-	for _, s := range segs {
-		var found bool
+	// 匹配成功，添加到缓存
+	responseTime := time.Since(startTime)
+	r.addToCache(method, path, mi, responseTime)
 
-		// 1. 尝试静态匹配 - 优先级最高
-		if child, ok := cur.children[s]; ok {
-			cur = child
-			found = true
-		}
-
-		// 2. 尝试正则表达式匹配 - 次优先级
-		if !found && cur.regChild != nil && cur.regChild.regExpr != nil {
-			if cur.regChild.regExpr.Match([]byte(s)) {
-				cur = cur.regChild
-				found = true
-				// 添加参数值
-				mi.addValue(cur.paramName, s)
-			}
-		}
-
-		// 3. 尝试参数匹配 - 再次优先级
-		if !found && cur.paramChild != nil {
-			cur = cur.paramChild
-			found = true
-			// 添加参数值
-			mi.addValue(cur.paramName, s)
-		}
-
-		// 4. 尝试通配符匹配 - 最低优先级
-		if !found && cur.starChild != nil {
-			cur = cur.starChild
-			found = true
-			// 通配符特殊处理 - 收集剩余路径
-			if cur.paramName != "" {
-				// 如果是最后一段，直接使用当前段
-				if len(segs) == 1 {
-					mi.addValue(cur.paramName, s)
-				} else {
-					// 否则，收集当前及后续所有段
-					remainingPath := strings.Join(segs[len(segs)-1:], "/")
-					mi.addValue(cur.paramName, remainingPath)
-					// 由于已经处理了所有剩余段，可以直接退出循环
-					break
-				}
-			}
-		}
-
-		// 如果没有找到匹配项，返回失败
-		if !found {
-			return &matchInfo{}, false
-		}
-	}
-
-	// 确保找到的节点有处理函数
-	if cur == nil || cur.handler == nil {
-		return &matchInfo{}, false
-	}
-
-	// Having traversed all segments, assign the last node and collected middleware to `mi`.
-	mi.n = cur
-	mi.mils = r.findMils(root, segs)
-
-	// 添加到缓存
-	r.addToCache(method, path, mi)
-
-	// 记录开始时间，用于性能统计
-	startTime := time.Now()
-
-	// 查找到路由后，如果启用了统计功能，记录路由信息
-	// 注意：实际响应码会在请求处理完成后才能获取，这里暂时设置为0
-	if r.enableStats && mi.n != nil {
-		go r.trackRouteStats(mi.n.route, startTime, 0)
+	// 如果启用了统计，记录路由访问情况
+	if r.enableStats {
+		r.trackRouteStats(path, startTime, 200) // 假设状态码为200
 	}
 
 	return mi, true
@@ -499,104 +427,112 @@ func (r *router) tryFastMatch(root *node, path string) (*node, bool) {
 	return cur, cur.handler != nil
 }
 
-// addToCache adds a route match result to the cache
-func (r *router) addToCache(method, path string, mi *matchInfo) {
-	if !r.cacheEnabled {
+// findRouteFromCache 从缓存查找路由
+func (r *router) findRouteFromCache(method, path string) (*matchInfo, bool) {
+	if !r.cacheEnabled || r.routeCache == nil {
+		return nil, false
+	}
+
+	cacheKey := method + ":" + path
+	value, found := r.routeCache.Get(cacheKey)
+	if !found {
+		return nil, false
+	}
+
+	// 类型断言
+	mi, ok := value.(*matchInfo)
+	return mi, ok
+}
+
+// addToCache 添加路由到缓存
+func (r *router) addToCache(method, path string, mi *matchInfo, responseTime time.Duration) {
+	if !r.cacheEnabled || r.routeCache == nil {
 		return
 	}
 
-	key := routeKey{method, path}
-
-	// 使用sync.Map的Store方法，无需加锁
-	r.routeCache.Store(key, mi)
-
-	// 定期清理缓存大小控制
-	go r.checkCacheSize()
+	cacheKey := method + ":" + path
+	r.routeCache.Set(cacheKey, mi, responseTime)
 }
 
-// findRouteFromCache tries to find a route in the cache
-func (r *router) findRouteFromCache(method, path string) (*matchInfo, bool) {
-	if !r.cacheEnabled {
+// matchNode 递归匹配节点
+func (r *router) matchNode(currentNode *node, segments []string, params map[string]string, index int) (*node, bool) {
+	// 如果已处理完所有段，检查是否有处理函数
+	if index >= len(segments) {
+		if currentNode.handler != nil {
+			return currentNode, true
+		}
 		return nil, false
 	}
 
-	key := routeKey{method, path}
+	segment := segments[index]
 
-	// 使用sync.Map的Load方法，无需加锁
-	value, ok := r.routeCache.Load(key)
-	if !ok {
-		atomic.AddUint64(&r.cacheMisses, 1)
-		return nil, false
-	}
-
-	atomic.AddUint64(&r.cacheHits, 1)
-	return value.(*matchInfo), true
-}
-
-// checkCacheSize checks if the cache has grown too large and prunes it if necessary
-func (r *router) checkCacheSize() {
-	var count int
-
-	// 计算当前缓存大小
-	r.routeCache.Range(func(_, _ interface{}) bool {
-		count++
-		return true
-	})
-
-	// 如果超出最大尺寸，清空缓存
-	if count > r.maxCacheSize {
-		r.clearCache()
-	}
-}
-
-// clearCache clears the route cache
-func (r *router) clearCache() {
-	// 创建新的sync.Map替代清空操作
-	r.routeCache = sync.Map{}
-	atomic.StoreUint64(&r.cacheHits, 0)
-	atomic.StoreUint64(&r.cacheMisses, 0)
-}
-
-// findMils 在路由树中查找与路径段关联的所有中间件
-// 这个方法需要遍历整个路径，收集每个匹配节点关联的中间件
-func (r *router) findMils(root *node, segs []string) []Middleware {
-	var mils []Middleware
-
-	// 首先添加根节点的中间件
-	if len(root.mils) > 0 {
-		mils = append(mils, root.mils...)
-	}
-
-	// 开始在当前节点
-	cur := root
-
-	// 遍历路径段，层层查找中间件
-	for _, seg := range segs {
-		// 检查静态匹配
-		if child, ok := cur.children[seg]; ok {
-			cur = child
-		} else if cur.regChild != nil && cur.regChild.regExpr.Match([]byte(seg)) {
-			// 正则匹配
-			cur = cur.regChild
-		} else if cur.paramChild != nil {
-			// 参数匹配
-			cur = cur.paramChild
-		} else if cur.starChild != nil {
-			// 通配符匹配
-			cur = cur.starChild
-			break // 通配符匹配后停止遍历
-		} else {
-			// 没有找到匹配节点，返回已收集的中间件
-			return mils
-		}
-
-		// 添加当前节点的中间件
-		if len(cur.mils) > 0 {
-			mils = append(mils, cur.mils...)
+	// 1. 尝试静态子节点匹配（优先级最高）
+	if child, ok := currentNode.children[segment]; ok {
+		if matchedNode, found := r.matchNode(child, segments, params, index+1); found {
+			return matchedNode, true
 		}
 	}
 
-	return mils
+	// 2. 尝试正则表达式子节点匹配
+	if currentNode.regChild != nil && currentNode.regChild.regExpr != nil {
+		if currentNode.regChild.regExpr.Match([]byte(segment)) {
+			// 添加参数
+			params[currentNode.regChild.paramName] = segment
+
+			if matchedNode, found := r.matchNode(currentNode.regChild, segments, params, index+1); found {
+				return matchedNode, true
+			}
+		}
+	}
+
+	// 3. 尝试参数子节点匹配
+	if currentNode.paramChild != nil {
+		// 添加参数
+		params[currentNode.paramChild.paramName] = segment
+
+		if matchedNode, found := r.matchNode(currentNode.paramChild, segments, params, index+1); found {
+			return matchedNode, true
+		}
+	}
+
+	// 4. 尝试通配符子节点匹配（优先级最低）
+	if currentNode.starChild != nil {
+		// 通配符特殊处理，收集剩余所有段
+		if currentNode.starChild.paramName != "" {
+			if index == len(segments)-1 {
+				// 最后一段，直接使用
+				params[currentNode.starChild.paramName] = segment
+			} else {
+				// 收集剩余所有段
+				remaining := strings.Join(segments[index:], "/")
+				params[currentNode.starChild.paramName] = remaining
+			}
+		}
+
+		// 通配符匹配成功，如果有处理函数则返回
+		if currentNode.starChild.handler != nil {
+			return currentNode.starChild, true
+		}
+	}
+
+	// 没有找到匹配
+	return nil, false
+}
+
+// collectMiddlewares 收集中间件
+func collectMiddlewares(n *node) []Middleware {
+	middles := []Middleware{}
+
+	// 收集当前节点的中间件
+	middles = append(middles, n.mils...)
+
+	// 递归收集父节点的中间件
+	for n.parent != nil {
+		n = n.parent
+		middles = append(n.mils, middles...)
+	}
+
+	return middles
 }
 
 // EnableStats 启用路由统计
