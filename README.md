@@ -1,26 +1,47 @@
-# Mist Web Framework
+# Mist Web 框架
 
-Mist 是一个轻量级、高性能的 Go Web 框架，专注于简洁易用的 API 设计和灵活的路由系统，同时提供全面的中间件支持。
+Mist 是一个轻量级、高性能的 Go Web 框架，专注于简洁易用的 API 设计和灵活的路由系统，同时提供全面的中间件支持和性能优化。
 
-## 特性
+[![Go Version](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org/dl/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-- **高性能路由系统**：基于前缀树实现的高效路由匹配
-- **灵活的路由模式**：支持静态路由、参数路由、正则表达式路由和通配符路由
-- **中间件机制**：支持全局中间件和路由级别中间件
-- **简洁的 API 设计**：易于学习和使用的 API 接口
-- **路由缓存**：通过缓存机制提升高频路由的匹配性能
-- **类型安全**：提供类型安全的参数处理和值提取
-- **易扩展**：框架核心设计简洁，易于扩展
+## 主要特性
 
-## 安装
+### 核心功能
+
+- **高性能路由系统**: 基于前缀树实现的高效路由匹配，支持路由缓存
+- **灵活的路由模式**: 支持静态路由、参数路由、正则表达式路由和通配符路由
+- **简洁 API 设计**: 易于学习和使用的 API 接口
+- **路由分组**: 简化相关路由的管理和中间件应用
+- **类型安全**: 提供类型安全的参数处理和值提取
+
+### 性能优化
+
+- **HTTP/3 支持**: 完整实现基于 QUIC 的 HTTP/3，支持平台特定优化
+- **自适应路由缓存**: 智能缓存机制，根据访问模式动态调整缓存内容
+- **上下文对象池**: 优化对象复用，减少 GC 压力
+- **零拷贝响应**: 高效文件传输，减少内存和 CPU 开销
+- **内存使用监控**: 实时监控内存使用，支持异常告警
+
+### 中间件支持
+
+- **身份验证**: JWT、Basic Auth、OAuth 等认证方式
+- **安全增强**: CORS、CSRF、XSS 防护、安全 HTTP 头
+- **请求限制**: 请求体大小限制、速率限制、并发连接限制
+- **监控与追踪**: Prometheus 指标、OpenTelemetry 集成
+- **会话管理**: 安全的会话处理，支持多种存储后端
+- **错误处理**: 集中式错误处理，支持自定义错误响应
+- **缓存**: 响应缓存，支持多级缓存策略
+
+## 快速开始
+
+### 安装
 
 ```bash
 go get github.com/dormoron/mist
 ```
 
-## 快速开始
-
-创建一个简单的 HTTP 服务器：
+### 基础示例
 
 ```go
 package main
@@ -30,243 +51,184 @@ import (
 )
 
 func main() {
+    // 初始化服务器
     server := mist.InitHTTPServer()
     
     // 注册路由
     server.GET("/", func(ctx *mist.Context) {
-        ctx.RespData = []byte("Hello, Mist!")
-        ctx.RespStatusCode = 200
+        ctx.RespondWithJSON(200, map[string]string{
+            "message": "Hello, Mist!",
+        })
     })
+    
+    // 添加中间件
+    server.Use(middlewares.Recovery())
+    server.Use(middlewares.AccessLog())
     
     // 启动服务器
     server.Start(":8080")
 }
 ```
 
-## 路由系统
-
-Mist 框架支持多种路由模式，满足不同场景需求：
-
-### 静态路由
+### 路由系统示例
 
 ```go
-server.GET("/users", func(ctx *mist.Context) {
-    ctx.RespData = []byte("User List")
-    ctx.RespStatusCode = 200
-})
-```
-
-### 参数路由
-
-使用`:param`格式定义路径参数：
-
-```go
+// 参数路由
 server.GET("/users/:id", func(ctx *mist.Context) {
-    id := ctx.PathParams["id"]
-    ctx.RespData = []byte("User ID: " + id)
-    ctx.RespStatusCode = 200
-})
-```
-
-### 正则表达式路由
-
-Mist支持两种正则表达式路由格式：
-
-```go
-// 花括号格式: {paramName:pattern}
-server.GET("/users/{id:[0-9]+}", func(ctx *mist.Context) {
-    id := ctx.PathParams["id"]
-    ctx.RespData = []byte("User ID (numeric): " + id)
-    ctx.RespStatusCode = 200
+    id := ctx.PathValue("id").String()
+    ctx.RespondWithJSON(200, map[string]string{
+        "user_id": id,
+    })
 })
 
-// 冒号括号格式: :paramName(pattern)
-server.GET("/posts/:id(\\d+)", func(ctx *mist.Context) {
-    id := ctx.PathParams["id"]
-    ctx.RespData = []byte("Post ID (numeric): " + id)
-    ctx.RespStatusCode = 200
+// 正则表达式路由
+server.GET("/posts/{id:[0-9]+}", func(ctx *mist.Context) {
+    id := ctx.PathValue("id").Int()
+    ctx.RespondWithJSON(200, map[string]string{
+        "post_id": fmt.Sprintf("%d", id),
+    })
 })
+
+// 路由分组
+api := server.Group("/api")
+api.Use(middlewares.Auth.JWT())
+
+// 用户相关路由
+users := api.Group("/users")
+users.GET("/", listUsers)
+users.POST("/", createUser)
+users.GET("/:id", getUser)
+users.PUT("/:id", updateUser)
+users.DELETE("/:id", deleteUser)
 ```
 
-### 通配符路由
+## 高级功能
 
-使用`*`匹配剩余路径段：
-
-```go
-server.GET("/files/*filepath", func(ctx *mist.Context) {
-    filepath := ctx.PathParams["filepath"]
-    ctx.RespData = []byte("File path: " + filepath)
-    ctx.RespStatusCode = 200
-})
-```
-
-## HTTP方法支持
-
-Mist支持所有标准HTTP方法：
-
-```go
-server.GET("/users", listUsers)
-server.POST("/users", createUser)
-server.PUT("/users/:id", updateUser)
-server.DELETE("/users/:id", deleteUser)
-server.PATCH("/users/:id", partialUpdateUser)
-server.OPTIONS("/users", usersOptions)
-server.HEAD("/users", usersHead)
-```
-
-## 中间件
-
-Mist 提供了灵活的中间件机制，支持全局中间件和路由级中间件。
-
-### 全局中间件
-
-全局中间件会应用到所有路由：
+### HTTP/3 支持
 
 ```go
 server := mist.InitHTTPServer()
+// 配置 HTTP/3
+config := mist.DefaultHTTP3Config()
+config.MaxIdleTimeout = 60 * time.Second
 
-// 添加全局日志中间件
-server.Use(func(next mist.HandleFunc) mist.HandleFunc {
-    return func(ctx *mist.Context) {
-        // 请求处理前的操作
-        startTime := time.Now()
-        
-        // 调用下一个中间件或处理函数
-        next(ctx)
-        
-        // 请求处理后的操作
-        duration := time.Since(startTime)
-        fmt.Printf("[%s] %s - %d (%v)\n", 
-            ctx.Request.Method, 
-            ctx.Request.URL.Path, 
-            ctx.RespStatusCode, 
-            duration)
-    }
-})
-```
-
-### 路由级中间件
-
-路由级中间件只应用于特定路由：
-
-```go
-// 身份验证中间件
-func authMiddleware(next mist.HandleFunc) mist.HandleFunc {
-    return func(ctx *mist.Context) {
-        token := ctx.Request.Header.Get("Authorization")
-        if !isValidToken(token) {
-            ctx.RespStatusCode = 401
-            ctx.RespData = []byte("Unauthorized")
-            return
-        }
-        next(ctx)
-    }
+// 启动 HTTP/3 服务器
+err := server.StartHTTP3(":443", "cert.pem", "key.pem", config)
+if err != nil {
+    log.Fatalf("HTTP/3 启动失败: %v", err)
 }
-
-// 添加路由级中间件
-server.GET("/protected", func(ctx *mist.Context) {
-    ctx.RespData = []byte("Protected resource")
-    ctx.RespStatusCode = 200
-}, authMiddleware)
 ```
 
-## 路由分组
-
-Mist支持路由分组，方便管理相关路由和应用中间件：
+### 零拷贝文件传输
 
 ```go
-// 创建API路由组
-apiGroup := server.Group("/api")
-
-// 为API组添加中间件
-apiGroup.Use(authMiddleware)
-
-// 在组中添加路由
-apiGroup.GET("/users", listUsers)
-apiGroup.POST("/users", createUser)
-
-// 创建嵌套组
-adminGroup := apiGroup.Group("/admin")
-adminGroup.Use(adminAuthMiddleware)
-adminGroup.GET("/stats", getStats)
-```
-
-## 请求和响应处理
-
-Mist提供了便捷的请求处理和响应生成功能：
-
-### 请求参数获取
-
-```go
-server.GET("/search", func(ctx *mist.Context) {
-    // 获取查询参数
-    query := ctx.QueryValue("q").StringOrDefault("")
-    page := ctx.QueryValue("page").IntOrDefault(1)
-    
-    // 处理请求...
-    
-    ctx.RespStatusCode = 200
-    ctx.RespData = []byte(fmt.Sprintf("Query: %s, Page: %d", query, page))
-})
-```
-
-### JSON请求处理
-
-```go
-server.POST("/users", func(ctx *mist.Context) {
-    var user User
-    if err := ctx.ReadJSON(&user); err != nil {
-        ctx.RespStatusCode = 400
-        ctx.RespData = []byte("Invalid request")
-        return
+server.GET("/download/:file", func(ctx *mist.Context) {
+    filePath := "path/to/files/" + ctx.PathValue("file").String()
+    zr := mist.NewZeroCopyResponse(ctx.ResponseWriter)
+    err := zr.ServeFile(filePath)
+    if err != nil {
+        ctx.RespondWithJSON(500, map[string]string{
+            "error": err.Error(),
+        })
     }
-    
-    // 处理用户数据...
-    
-    ctx.RespStatusCode = 201
-    ctx.RespData = []byte("User created")
 })
 ```
 
-## 性能优化
+### 内存监控
 
-Mist框架内置多种性能优化机制：
+```go
+monitor := mist.NewMemoryMonitor(10*time.Second, 60)
+monitor.AddAlertCallback(func(stats mist.MemStats, message string) {
+    log.Printf("内存警告: %s, 已分配: %d 字节", message, stats.Alloc)
+})
+monitor.Start()
+defer monitor.Stop()
+```
 
-- 基于前缀树的高效路由匹配
-- 路由缓存机制，提高访问频率高的路由性能
-- 优化的内存分配策略，减少GC压力
-- 高效的正则表达式匹配实现
+## 中间件使用示例
 
-## 示例项目
+### 速率限制
 
-查看[examples目录](./examples)获取更多实际应用示例：
+```go
+// 创建速率限制中间件
+limiter := middlewares.RateLimit.NewFixedWindow(middlewares.RateLimit.Config{
+    MaxRequests: 100,        // 每窗口最大请求数
+    Window:      time.Minute, // 窗口大小
+    KeyFunc: func(ctx *mist.Context) string {
+        return ctx.ClientIP() // 基于客户端IP限流
+    },
+})
 
-- 基础Web服务器
-- REST API实现
-- 中间件示例
-- 文件服务器
-- WebSocket支持
+// 应用到所有路由
+server.Use(limiter)
+
+// 或仅应用到特定路由组
+apiGroup := server.Group("/api")
+apiGroup.Use(limiter)
+```
+
+### CORS 配置
+
+```go
+// 使用默认 CORS 配置
+server.Use(middlewares.CORS.Default())
+
+// 或使用自定义配置
+corsConfig := middlewares.CORS.Config{
+    AllowOrigins:     []string{"https://example.com"},
+    AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
+    AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+    ExposeHeaders:    []string{"Content-Length"},
+    AllowCredentials: true,
+    MaxAge:           12 * time.Hour,
+}
+server.Use(middlewares.CORS.New(corsConfig))
+```
+
+### 请求体大小限制
+
+```go
+// 全局限制请求体大小为1MB
+server.Use(middlewares.BodyLimit.New("1MB"))
+
+// 或使用自定义配置
+config := middlewares.BodyLimit.Config{
+    MaxSize:        2 * 1024 * 1024, // 2MB
+    WhitelistPaths: []string{"/upload"},
+}
+server.Use(middlewares.BodyLimit.NewWithConfig(config))
+```
+
+## 安全特性
+
+Mist 框架提供多方面安全增强：
+
+- **账户锁定策略**: 防止暴力破解攻击
+- **会话安全增强**: 会话指纹绑定，令牌轮换，多级超时策略
+- **安全 HTTP 头**: 自动设置 CSP、HSTS、X-Frame-Options 等安全头
+- **密码安全**: 密码强度检测，历史记录检查
+- **内容类型保护**: 自动检测和设置正确的 Content-Type
 
 ## 贡献指南
 
-我们欢迎所有形式的贡献，包括但不限于：
+我们欢迎各种形式的贡献，包括但不限于：
 
 - 提交问题和功能请求
 - 提交代码改进
 - 改进文档
 - 分享使用经验
 
-请遵循以下步骤贡献代码：
+贡献代码的步骤：
 
 1. Fork 仓库
 2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
 3. 提交更改 (`git commit -m 'Add some amazing feature'`)
 4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 创建Pull Request
+5. 创建 Pull Request
 
 ## 许可证
 
-Mist框架使用MIT许可证 - 详情请参阅[LICENSE](LICENSE)文件。
+Mist 框架使用 MIT 许可证 - 详情请参阅 [LICENSE](LICENSE) 文件。
 
 ## 联系方式
 
@@ -275,7 +237,7 @@ Mist框架使用MIT许可证 - 详情请参阅[LICENSE](LICENSE)文件。
 
 ---
 
-Mist Framework - 为高性能Go Web应用而生
+Mist Framework - 为高性能 Go Web 应用而生
 
 ## 安全优化
 
